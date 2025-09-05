@@ -78,8 +78,8 @@ def run_mosaic_layout(image_paths, save_path):
                 w, h = img.size
                 images_data.append({'width': w, 'height': h, 'path': path})
 
-        # 2. Use rectpack to find optimal positions
-        packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA)
+        # 2. Use rectpack to find optimal positions, with rotation enabled
+        packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
 
         for img in images_data:
             packer.add_rect(img['width'], img['height'], rid=img['path'])
@@ -87,7 +87,19 @@ def run_mosaic_layout(image_paths, save_path):
         packer.add_bin(bin_width, bin_height, count=float('inf'))
         packer.pack()
 
-        # 3. Generate the PDF from the packed result
+        # 3. Check for unpacked images
+        unpacked_images = [rect.rid for rect in packer.rect_list() if rect.abin is None]
+        if unpacked_images:
+            msg = "Las siguientes imágenes son demasiado grandes para caber en una página y no se incluirán:\n\n"
+            for img_path in unpacked_images:
+                msg += f"- {os.path.basename(img_path)}\n"
+            messagebox.showwarning("Imágenes Grandes Omitidas", msg)
+
+        if not any(packer):
+            messagebox.showerror("Error", "No se pudo empaquetar ninguna imagen. El PDF no será generado.")
+            return
+
+        # 4. Generate the PDF from the packed result
         c = canvas.Canvas(save_path, pagesize=A4)
 
         for i, abin in enumerate(packer):
@@ -95,9 +107,16 @@ def run_mosaic_layout(image_paths, save_path):
                 c.showPage()
 
             for rect in abin:
+                # Load the original image
+                img = Image.open(rect.rid)
+                # Rotate it if the packer decided to
+                if rect.rotated:
+                    img = img.rotate(90, expand=True)
+
+                # Define position and draw the (potentially rotated) image
                 x = margin + rect.x
                 y = margin + rect.y
-                c.drawImage(rect.rid, x, y, width=rect.width, height=rect.height)
+                c.drawImage(ImageReader(img), x, y, width=rect.width, height=rect.height)
 
         c.save()
         messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
