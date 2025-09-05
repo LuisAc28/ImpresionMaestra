@@ -88,11 +88,14 @@ def run_mosaic_layout(image_paths, save_path):
         packer.pack()
 
         # 3. Check for unpacked images
-        unpacked_images = [rect.rid for rect in packer.rect_list() if rect.abin is None]
-        if unpacked_images:
+        all_rids = {img['path'] for img in images_data}
+        packed_rids = {rect.rid for abin in packer for rect in abin}
+        unpacked_rids = all_rids - packed_rids
+
+        if unpacked_rids:
             msg = "Las siguientes imágenes son demasiado grandes para caber en una página y no se incluirán:\n\n"
-            for img_path in unpacked_images:
-                msg += f"- {os.path.basename(img_path)}\n"
+            for rid in unpacked_rids:
+                msg += f"- {os.path.basename(rid)}\n"
             messagebox.showwarning("Imágenes Grandes Omitidas", msg)
 
         if not any(packer):
