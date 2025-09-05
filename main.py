@@ -4,27 +4,60 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageTk
 import rectpack
+import os
 
-# Global variable to store image paths
+# Global variables
 image_paths = []
+thumbnail_references = [] # To prevent garbage collection
 
 def upload_files():
     """
-    Opens a file dialog to select multiple image files (JPG, PNG),
-    stores their paths, and enables the PDF generation button.
+    Opens a file dialog, loads images, and displays thumbnails in the preview panel.
     """
-    global image_paths
-    file_paths = filedialog.askopenfilenames(
+    global image_paths, thumbnail_references
+
+    file_paths_tuple = filedialog.askopenfilenames(
         title="Seleccionar imágenes",
         filetypes=(("Archivos de imagen", "*.jpg *.jpeg *.png"), ("Todos los archivos", "*.*"))
     )
-    if file_paths:
-        image_paths = list(file_paths)
-        print(f"{len(image_paths)} archivos seleccionados.")
+
+    # 1. Clear previous state
+    for widget in scrollable_frame.winfo_children():
+        widget.destroy()
+    thumbnail_references.clear()
+
+    if file_paths_tuple:
+        image_paths = list(file_paths_tuple)
+
+        # 2. Display new thumbnails in a grid
+        for i, path in enumerate(image_paths):
+            try:
+                img = Image.open(path)
+                img.thumbnail((100, 100))
+                photo_img = ImageTk.PhotoImage(img)
+
+                # 3. Keep a reference to avoid garbage collection
+                thumbnail_references.append(photo_img)
+
+                thumb_frame = ttk.Frame(scrollable_frame, padding=5)
+                img_label = ttk.Label(thumb_frame, image=photo_img)
+                img_label.pack()
+
+                filename = os.path.basename(path)
+                name_label = ttk.Label(thumb_frame, text=filename, wraplength=100, justify='center')
+                name_label.pack()
+
+                row, col = divmod(i, 4) # 4 columns
+                thumb_frame.grid(row=row, column=col, padx=5, pady=5)
+
+            except Exception as e:
+                print(f"Error loading thumbnail for {path}: {e}")
+
         generate_button.config(state=tk.NORMAL)
     else:
+        # No files selected, ensure everything is cleared
         image_paths = []
         generate_button.config(state=tk.DISABLED)
 
@@ -141,13 +174,57 @@ def generate_pdf():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.2") # Version bump
-root.geometry("800x600")
+root.title("Impresión Maestra - v1.2")
+root.geometry("1024x768") # Increased size for the new layout
 
-main_frame = tk.Frame(root, padx=10, pady=10)
-main_frame.pack(fill=tk.BOTH, expand=True)
+# Main container with two panels
+main_container = ttk.Frame(root)
+main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-options_frame = ttk.LabelFrame(main_frame, text="Opciones de Diseño", padding=(10, 5))
+# Left panel for controls
+controls_panel = ttk.Frame(main_container, width=320)
+controls_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+controls_panel.pack_propagate(False) # Prevent panel from shrinking
+
+# Right panel for preview
+preview_panel = ttk.LabelFrame(main_container, text="Previsualización")
+preview_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+# --- Create Scrollable Canvas for Thumbnails ---
+preview_canvas = tk.Canvas(preview_panel, borderwidth=0)
+scrollbar = ttk.Scrollbar(preview_panel, orient="vertical", command=preview_canvas.yview)
+scrollable_frame = ttk.Frame(preview_canvas)
+
+scrollable_frame.bind(
+    "<Configure>",
+    lambda e: preview_canvas.configure(
+        scrollregion=preview_canvas.bbox("all")
+    )
+)
+
+canvas_frame = preview_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+preview_canvas.configure(yscrollcommand=scrollbar.set)
+
+# Add mouse wheel scrolling
+def _on_mouse_wheel(event):
+    # Cross-platform mouse wheel scrolling
+    if event.num == 5 or event.delta < 0:
+        preview_canvas.yview_scroll(1, "units")
+    elif event.num == 4 or event.delta > 0:
+        preview_canvas.yview_scroll(-1, "units")
+
+# Bind mouse wheel to the canvas for scrolling
+preview_canvas.bind_all("<MouseWheel>", _on_mouse_wheel)
+preview_canvas.bind_all("<Button-4>", _on_mouse_wheel)
+preview_canvas.bind_all("<Button-5>", _on_mouse_wheel)
+
+# Pack the canvas and scrollbar
+preview_canvas.pack(side="left", fill="both", expand=True)
+scrollbar.pack(side="right", fill="y")
+
+
+# --- Populate Controls Panel ---
+options_frame = ttk.LabelFrame(controls_panel, text="Opciones de Diseño", padding=(10, 5))
 options_frame.pack(fill=tk.X, pady=5)
 
 layout_label = ttk.Label(options_frame, text="Diseño por Hoja:")
@@ -168,10 +245,9 @@ fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", vari
 fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
 fit_mode_var.set("Ajustar")
-
 options_frame.columnconfigure(1, weight=1)
 
-action_frame = ttk.LabelFrame(main_frame, text="Acciones", padding=(10, 5))
+action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
 
 load_button = ttk.Button(action_frame, text="Cargar Imágenes", command=upload_files)
@@ -179,5 +255,6 @@ load_button.pack(side=tk.LEFT, padx=5, pady=5)
 
 generate_button = ttk.Button(action_frame, text="Generar PDF", command=generate_pdf, state=tk.DISABLED)
 generate_button.pack(side=tk.LEFT, padx=5, pady=5)
+
 
 root.mainloop()
