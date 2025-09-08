@@ -43,7 +43,34 @@ def upload_files():
         update_preview()
 
 # --- Layout Calculation Logic ---
-# (This section is unchanged from the previous step)
+def get_grid_dimensions():
+    """
+    Determines the grid dimensions (rows, cols) based on the layout selection.
+    This is the single source of truth for grid sizing.
+    """
+    layout_choice = layout_var.get()
+
+    if layout_choice == "Personalizado...":
+        try:
+            # Get values from spinboxes, ensure they are at least 1
+            rows = int(rows_var.get())
+            cols = int(cols_var.get())
+            return (rows if rows > 0 else 1, cols if cols > 0 else 1)
+        except (ValueError, tk.TclError):
+            return (1, 1)  # Default to 1x1 on error
+    else:
+        # The master dictionary for all predefined grid layouts
+        layout_configs = {
+            "1 por hoja": (1, 1),
+            "2 por hoja": (1, 2),
+            "3 por hoja (1x3)": (1, 3),
+            "4 por hoja (2x2)": (2, 2),
+            "6 por hoja (2x3)": (2, 3),
+            "9 por hoja (3x3)": (3, 3)
+        }
+        # Return the config, or a default (e.g., 1x1) if not a grid mode
+        return layout_configs.get(layout_choice, (1, 1))
+
 def calculate_mosaic_layout(image_paths, pagesize):
     margin = 1 * cm
     page_width, page_height = pagesize
@@ -61,10 +88,12 @@ def calculate_mosaic_layout(image_paths, pagesize):
     unpacked_paths = list(all_rids - packed_rids)
     return packer, unpacked_paths
 
-def calculate_grid_layout(image_paths, layout_choice):
-    layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-    rows, cols = layout_configs[layout_choice]
+def calculate_grid_layout(image_paths):
+    rows, cols = get_grid_dimensions()
     chunk_size = rows * cols
+    # Handle case where chunk_size might be 0 if user enters invalid custom values
+    if chunk_size == 0:
+        return []
     pages = [image_paths[i:i + chunk_size] for i in range(0, len(image_paths), chunk_size)]
     return pages
 
@@ -104,8 +133,8 @@ def draw_preview_page():
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
                 preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(rect.rid)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
     else: # Grid layouts
-        layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-        rows, cols = layout_configs[layout_choice]
+        rows, cols = get_grid_dimensions()
+        if rows == 0 or cols == 0: return # Avoid division by zero
         cell_width_pt = (page_width_pt - 2 * margin_pt) / cols
         cell_height_pt = (page_height_pt - 2 * margin_pt) / rows
         for i, path in enumerate(page_data):
@@ -177,7 +206,7 @@ def update_preview():
                 messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
                 preview_pages = []
         else:
-            preview_pages = calculate_grid_layout(image_paths, layout_choice)
+            preview_pages = calculate_grid_layout(image_paths)
 
     # 3. Draw the content for the current page and update controls
     draw_preview_page()
@@ -230,9 +259,9 @@ def generate_pdf():
                 return
             draw_mosaic_pdf(packed_pages, save_path, pagesize)
         else: # Grid modes
-            pages = calculate_grid_layout(image_paths, layout_choice)
+            pages = calculate_grid_layout(image_paths)
             fit_mode = fit_mode_var.get()
-            draw_grid_pdf(pages, layout_choice, fit_mode, save_path, pagesize)
+            draw_grid_pdf(pages, fit_mode, save_path, pagesize)
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error inesperado:\n{e}")
 
@@ -251,9 +280,11 @@ def draw_mosaic_pdf(packer, save_path, pagesize):
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
-def draw_grid_pdf(pages, layout_choice, fit_mode, save_path, pagesize):
-    layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-    rows, cols = layout_configs[layout_choice]
+def draw_grid_pdf(pages, fit_mode, save_path, pagesize):
+    rows, cols = get_grid_dimensions()
+    if rows == 0 or cols == 0:
+        messagebox.showerror("Error de Diseño", "Las filas y columnas deben ser mayores que cero.")
+        return
     c = canvas.Canvas(save_path, pagesize=pagesize)
     width, height = pagesize
     margin = 1 * cm
@@ -272,6 +303,19 @@ def draw_grid_pdf(pages, layout_choice, fit_mode, save_path, pagesize):
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
+
+
+def handle_layout_change(event=None):
+    """
+    Shows or hides the custom layout frame based on the combobox selection
+    and triggers a preview update.
+    """
+    if layout_var.get() == "Personalizado...":
+        custom_layout_frame.grid()
+    else:
+        custom_layout_frame.grid_remove()
+    update_preview()
+
 
 # --- UI Setup ---
 root = tk.Tk()
@@ -319,30 +363,53 @@ preview_canvas.bind("<Configure>", redraw_paper)
 options_frame = ttk.LabelFrame(controls_panel, text="Opciones de Diseño", padding=(10, 5))
 options_frame.pack(fill=tk.X, pady=5)
 
+# --- Layout Selection ---
 layout_label = ttk.Label(options_frame, text="Diseño por Hoja:")
 layout_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 layout_var = tk.StringVar()
-layout_options = ["1 por hoja", "2 por hoja", "4 por hoja (2x2)", "6 por hoja (2x3)", "Mosaico (Ahorro de papel)"]
+layout_options = [
+    "1 por hoja", "2 por hoja", "3 por hoja (1x3)", "4 por hoja (2x2)",
+    "6 por hoja (2x3)", "9 por hoja (3x3)", "Mosaico (Ahorro de papel)", "Personalizado..."
+]
 layout_combo = ttk.Combobox(options_frame, textvariable=layout_var, values=layout_options, state="readonly")
 layout_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 layout_combo.set("4 por hoja (2x2)")
-layout_combo.bind("<<ComboboxSelected>>", lambda e: update_preview())
+layout_combo.bind("<<ComboboxSelected>>", handle_layout_change)
 
+# --- Custom Layout Frame (Initially Hidden) ---
+custom_layout_frame = ttk.Frame(options_frame)
+custom_layout_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
+
+rows_label = ttk.Label(custom_layout_frame, text="Filas:")
+rows_label.pack(side=tk.LEFT, padx=(5, 5))
+rows_var = tk.StringVar(value="2")
+rows_spinbox = tk.Spinbox(custom_layout_frame, from_=1, to=10, width=5, textvariable=rows_var, command=update_preview)
+rows_spinbox.pack(side=tk.LEFT, padx=(0, 10))
+
+cols_label = ttk.Label(custom_layout_frame, text="Columnas:")
+cols_label.pack(side=tk.LEFT, padx=(5, 5))
+cols_var = tk.StringVar(value="2")
+cols_spinbox = tk.Spinbox(custom_layout_frame, from_=1, to=10, width=5, textvariable=cols_var, command=update_preview)
+cols_spinbox.pack(side=tk.LEFT)
+custom_layout_frame.grid_remove() # Hide it by default
+
+# --- Fit Mode ---
 fit_mode_label = ttk.Label(options_frame, text="Modo de Ajuste:")
-fit_mode_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+fit_mode_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 fit_mode_var = tk.StringVar(value="Ajustar")
 fit_mode_frame = ttk.Frame(options_frame)
-fit_mode_frame.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+fit_mode_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar (con bordes)", variable=fit_mode_var, value="Ajustar", command=update_preview)
 fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", variable=fit_mode_var, value="Rellenar", command=update_preview)
 fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
 
+# --- Orientation ---
 orientation_label = ttk.Label(options_frame, text="Orientación:")
-orientation_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+orientation_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
 orientation_var = tk.StringVar(value="Vertical")
 orientation_frame = ttk.Frame(options_frame)
-orientation_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+orientation_frame.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variable=orientation_var, value="Vertical", command=update_preview)
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
