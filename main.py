@@ -8,9 +8,11 @@ from reportlab.lib.utils import ImageReader
 from PIL import Image, ImageOps, ImageTk
 import rectpack
 import os
+import cv2
+import numpy as np
 
 # Global variables
-image_paths = []
+loaded_images_data = [] # List of (Image, path) tuples
 paper_dims = {} # To store on-screen paper dimensions
 orientation_var = None # Will be initialized with UI
 FIT_MODE_FIT = "fit"
@@ -28,27 +30,35 @@ def get_page_size():
 
 def _handle_file_selection(replace_current: bool):
     """
-    Internal logic for opening file dialog and updating the image list.
+    Internal logic for opening file dialog, processing images, and updating the image list.
     """
-    global image_paths
+    global loaded_images_data
     title = "Seleccionar imágenes para cargar" if replace_current else "Seleccionar imágenes para añadir"
     file_paths_tuple = filedialog.askopenfilenames(
         title=title,
         filetypes=(("Archivos de imagen", "*.jpg *.jpeg *.png"), ("Todos los archivos", "*.*"))
     )
 
-    if not file_paths_tuple:
-        if replace_current:
-            image_paths = []
-    else:
-        if replace_current:
-            image_paths = list(file_paths_tuple)
-        else:
-            if not isinstance(image_paths, list):
-                image_paths = []
-            image_paths.extend(list(file_paths_tuple))
+    newly_processed_images = []
+    if file_paths_tuple:
+        for path in file_paths_tuple:
+            try:
+                with Image.open(path) as img:
+                    # Convert to RGBA to handle transparency consistently
+                    img = img.convert("RGBA")
+                    trimmed_img = trim_whitespace(img)
+                    newly_processed_images.append((trimmed_img, path))
+            except Exception as e:
+                print(f"Error processing image {path}: {e}")
+                # Optionally show a message to the user
+                messagebox.showwarning("Error de Imagen", f"No se pudo procesar la imagen:\n{os.path.basename(path)}\n\nSerá omitida.")
 
-    if image_paths:
+    if replace_current:
+        loaded_images_data = newly_processed_images
+    else:
+        loaded_images_data.extend(newly_processed_images)
+
+    if loaded_images_data:
         preview_button.config(state=tk.NORMAL)
         generate_button.config(state=tk.NORMAL)
     else:
@@ -66,7 +76,35 @@ def upload_files_add():
     _handle_file_selection(replace_current=False)
 
 # --- Layout Calculation Logic ---
-# (This section is unchanged from the previous step)
+def trim_whitespace(image):
+    """
+    Detects and crops empty borders (white or transparent) from a Pillow image.
+    """
+    # Convert Pillow Image to NumPy array
+    img_np = np.array(image)
+    if image.mode == 'RGBA':
+        # Use the alpha channel to find the bounding box
+        alpha_channel = img_np[:, :, 3]
+        coords = np.argwhere(alpha_channel > 0)
+    else:
+        # For non-alpha images, assume a white background
+        # Convert to grayscale and threshold
+        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        # Threshold to find non-white pixels (adjust threshold for off-white)
+        _, thresh = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+        coords = np.argwhere(thresh > 0)
+
+    if coords.size == 0:
+        # Image is completely empty, return it as is
+        return image
+
+    # Get bounding box from coordinates
+    y_min, x_min = coords.min(axis=0)
+    y_max, x_max = coords.max(axis=0)
+
+    # Crop the original Pillow image
+    return image.crop((x_min, y_min, x_max + 1, y_max + 1))
+
 def get_grid_dimensions():
     """
     Determines the grid dimensions (rows, cols) based on the layout selection.
@@ -99,28 +137,33 @@ def handle_layout_change(event=None):
         custom_layout_frame.grid_remove()
     update_preview()
 
-def calculate_mosaic_layout(image_paths):
+def calculate_mosaic_layout(images_data_list):
     margin = 1 * cm
     page_width, page_height = get_page_size()
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
-    images_data = [{'width': w, 'height': h, 'path': p}
-                   for p in image_paths for w, h in [Image.open(p).size]]
+
+    # images_data_list is a list of (Image, path) tuples
+    rects_data = [{'width': img.width, 'height': img.height, 'rid': (img, path)}
+                  for img, path in images_data_list]
+
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
-    for img in images_data:
-        packer.add_rect(img['width'], img['height'], rid=img['path'])
+    for r in rects_data:
+        packer.add_rect(r['width'], r['height'], rid=r['rid'])
+
     packer.add_bin(bin_width, bin_height, count=float('inf'))
     packer.pack()
-    all_rids = {img['path'] for img in images_data}
-    packed_rids = {rect.rid for abin in packer for rect in abin}
+
+    all_rids = {r['rid'][1] for r in rects_data} # Get original paths
+    packed_rids = {rect.rid[1] for abin in packer for rect in abin} # Get original paths
     unpacked_paths = list(all_rids - packed_rids)
     return packer, unpacked_paths
 
-def calculate_grid_layout(image_paths):
+def calculate_grid_layout(images_data_list):
     rows, cols = get_grid_dimensions()
     if rows * cols == 0: return []
     chunk_size = rows * cols
-    pages = [image_paths[i:i + chunk_size] for i in range(0, len(image_paths), chunk_size)]
+    pages = [images_data_list[i:i + chunk_size] for i in range(0, len(images_data_list), chunk_size)]
     return pages
 
 # --- PDF Generation / Preview Logic ---
@@ -148,7 +191,7 @@ def draw_preview_page():
             pw = rect.width * scale
             ph = rect.height * scale
             try:
-                img = Image.open(rect.rid)
+                img, path = rect.rid
                 if rect.rotated:
                     img = img.rotate(90, expand=True)
                 resized_img = img.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
@@ -163,7 +206,7 @@ def draw_preview_page():
         if rows * cols == 0: return
         cell_width_pt = (page_width_pt - 2 * margin_pt) / cols
         cell_height_pt = (page_height_pt - 2 * margin_pt) / rows
-        for i, path in enumerate(page_data):
+        for i, (img, path) in enumerate(page_data):
             row, col = divmod(i, cols)
             x_pt = margin_pt + col * cell_width_pt
             y_pt = margin_pt + (rows - 1 - row) * cell_height_pt
@@ -172,9 +215,10 @@ def draw_preview_page():
             px = x0 + x_pt * scale
             py = y0 + paper_h_px - (y_pt + cell_height_pt) * scale
             try:
-                img = Image.open(path)
-                img.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
-                photo_img = ImageTk.PhotoImage(img)
+                # Create a copy for thumbnail to avoid modifying the original object
+                img_copy = img.copy()
+                img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                photo_img = ImageTk.PhotoImage(img_copy)
                 img_w, img_h = img.size
                 px_centered = px + (pw - img_w) / 2
                 py_centered = py + (ph - img_h) / 2
@@ -229,17 +273,17 @@ def update_preview():
 
     # 2. Calculate layout for images
     preview_pages = []
-    if image_paths:
+    if loaded_images_data:
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
             try:
-                packer, _ = calculate_mosaic_layout(image_paths)
+                packer, _ = calculate_mosaic_layout(loaded_images_data)
                 preview_pages = [bin for bin in packer if bin]
             except Exception as e:
                 messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
                 preview_pages = []
         else:
-            preview_pages = calculate_grid_layout(image_paths)
+            preview_pages = calculate_grid_layout(loaded_images_data)
 
     # 3. Restore page index
     new_total_pages = len(preview_pages)
@@ -282,7 +326,7 @@ def update_pagination_controls():
     next_page_button.config(state=tk.NORMAL if current_preview_page_index < total_pages - 1 else tk.DISABLED)
 
 def generate_pdf():
-    if not image_paths:
+    if not loaded_images_data:
         messagebox.showinfo("Información", "No hay imágenes seleccionadas.")
         return
     save_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("Archivos PDF", "*.pdf"), ("Todos los archivos", "*.*")], title="Guardar PDF como...")
@@ -291,7 +335,7 @@ def generate_pdf():
     try:
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
-            packed_pages, unpacked = calculate_mosaic_layout(image_paths)
+            packed_pages, unpacked = calculate_mosaic_layout(loaded_images_data)
             if unpacked:
                 msg = "Imágenes omitidas por ser demasiado grandes:\n\n" + "\n".join(f"- {os.path.basename(p)}" for p in unpacked)
                 messagebox.showwarning("Imágenes Grandes Omitidas", msg)
@@ -300,7 +344,7 @@ def generate_pdf():
                 return
             draw_mosaic_pdf(packed_pages, save_path)
         else: # Grid modes
-            pages = calculate_grid_layout(image_paths)
+            pages = calculate_grid_layout(loaded_images_data)
             fit_mode = fit_mode_var.get()
             border_width = int(border_width_var.get())
             border_color = border_color_var.get()
@@ -314,7 +358,7 @@ def draw_mosaic_pdf(packer, save_path):
     for i, abin in enumerate(packer):
         if i > 0: c.showPage()
         for rect in abin:
-            img = Image.open(rect.rid)
+            img, path = rect.rid
             if rect.rotated:
                 img = img.rotate(90, expand=True)
             x = margin + rect.x
@@ -337,14 +381,13 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
     for i, page_chunk in enumerate(pages):
         if i > 0: c.showPage()
         positions = [(margin + col * cell_width, margin + (rows - 1 - row) * cell_height) for row in range(rows) for col in range(cols)]
-        for j, img_path in enumerate(page_chunk):
+        for j, (img, path) in enumerate(page_chunk):
             pos_x, pos_y = positions[j]
-            img = Image.open(img_path)
 
             if fit_mode == FIT_MODE_FIT:
                 c.drawImage(ImageReader(img), pos_x, pos_y, width=cell_width, height=cell_height, preserveAspectRatio=True, anchor='c')
                 if border_width > 0:
-                    img_w, img_h = img.size
+                    img_w, img_h = img.width, img.height
                     cell_ar = cell_width / cell_height
                     img_ar = img_w / img_h
                     if img_ar > cell_ar:
@@ -391,7 +434,7 @@ def choose_border_color():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.6")
+root.title("Impresión Maestra - v1.7")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
