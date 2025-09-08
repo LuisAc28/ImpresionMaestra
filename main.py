@@ -4,7 +4,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageTk
 import rectpack
 import os
 
@@ -64,6 +64,9 @@ def update_preview():
     Updates the preview canvas with a visual representation of the layout.
     """
     preview_canvas.delete("layout_item")
+    # Store references to PhotoImage objects to prevent garbage collection
+    preview_canvas.thumbnail_references = []
+
     if not image_paths or not paper_dims:
         return
 
@@ -84,8 +87,20 @@ def update_preview():
                     py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
                     pw = rect.width * scale
                     ph = rect.height * scale
-                    preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="blue", fill="lightblue", tags="layout_item")
-                    preview_canvas.create_text(px + 4, py + 4, text=os.path.basename(rect.rid), anchor="nw", font=("Arial", 7), tags="layout_item")
+
+                    # --- Thumbnail Generation ---
+                    img = Image.open(rect.rid)
+                    if rect.rotated:
+                        img = img.rotate(90, expand=True)
+
+                    # Resize with high-quality downsampling
+                    resized_img = img.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                    photo_img = ImageTk.PhotoImage(resized_img)
+
+                    # Store reference and draw on canvas
+                    preview_canvas.thumbnail_references.append(photo_img)
+                    preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
+
         except Exception as e:
             messagebox.showerror("Error de Previsualización", f"No se pudo previsualizar el modo mosaico:\n{e}")
     else:
@@ -104,13 +119,32 @@ def update_preview():
             x_pt = margin_pt + col * cell_width_pt
             y_pt = margin_pt + (rows - 1 - row) * cell_height_pt
 
-            px = x0 + x_pt * scale
-            py = y0 + paper_h_px - (y_pt + cell_height_pt) * scale
+            # For grid, we just need the cell dimensions for the placeholder
             pw = cell_width_pt * scale
             ph = cell_height_pt * scale
+            px = x0 + x_pt * scale
+            py = y0 + paper_h_px - (y_pt + cell_height_pt) * scale
 
-            preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="green", fill="lightgreen", tags="layout_item")
-            preview_canvas.create_text(px + 4, py + 4, text=os.path.basename(path), anchor="nw", font=("Arial", 7), tags="layout_item")
+            # --- Thumbnail Generation ---
+            try:
+                img = Image.open(path)
+                # Fit the image within the cell, preserving aspect ratio
+                img.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                photo_img = ImageTk.PhotoImage(img)
+
+                # Center the thumbnail in the cell
+                img_w, img_h = img.size
+                px_centered = px + (pw - img_w) / 2
+                py_centered = py + (ph - img_h) / 2
+
+                # Store reference and draw on canvas
+                preview_canvas.thumbnail_references.append(photo_img)
+                preview_canvas.create_image(px_centered, py_centered, image=photo_img, anchor="nw", tags="layout_item")
+
+            except Exception as e:
+                # Draw a placeholder if image fails to load
+                preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
+                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(path)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
 
 def generate_pdf():
     if not image_paths:
@@ -176,7 +210,7 @@ def draw_grid_pdf(pages, layout_choice, fit_mode, save_path):
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.3")
+root.title("Impresión Maestra - v1.4")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
