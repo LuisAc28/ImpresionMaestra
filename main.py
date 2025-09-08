@@ -22,25 +22,47 @@ def get_page_size():
         return landscape(A4)
     return A4
 
-def upload_files():
+def _handle_file_selection(replace_current: bool):
     """
-    Opens a file dialog to select image paths and triggers a preview update.
+    Internal logic for opening file dialog and updating the image list.
     """
     global image_paths
+    title = "Seleccionar imágenes para cargar" if replace_current else "Seleccionar imágenes para añadir"
     file_paths_tuple = filedialog.askopenfilenames(
-        title="Seleccionar imágenes",
+        title=title,
         filetypes=(("Archivos de imagen", "*.jpg *.jpeg *.png"), ("Todos los archivos", "*.*"))
     )
-    if file_paths_tuple:
-        image_paths = list(file_paths_tuple)
+
+    if not file_paths_tuple:
+        # If replacing, a cancelled dialog means clearing the list.
+        if replace_current:
+            image_paths = []
+    else:
+        if replace_current:
+            image_paths = list(file_paths_tuple)
+        else:
+            # Ensure image_paths is a list before extending
+            if not isinstance(image_paths, list):
+                image_paths = []
+            image_paths.extend(list(file_paths_tuple))
+
+    # Update button states based on whether there are images
+    if image_paths:
         preview_button.config(state=tk.NORMAL)
         generate_button.config(state=tk.NORMAL)
-        update_preview()
     else:
-        image_paths = []
         preview_button.config(state=tk.DISABLED)
         generate_button.config(state=tk.DISABLED)
-        update_preview()
+
+    update_preview()
+
+def upload_files_replace():
+    """Action for the 'Cargar Imágenes' button."""
+    _handle_file_selection(replace_current=True)
+
+def upload_files_add():
+    """Action for the 'Añadir Imágenes' button."""
+    _handle_file_selection(replace_current=False)
 
 # --- Layout Calculation Logic ---
 def get_grid_dimensions():
@@ -165,8 +187,10 @@ def update_preview():
     """
     global preview_pages, current_preview_page_index, paper_dims
 
+    # 0. Save current state
+    saved_page_index = current_preview_page_index
+
     # 1. Recalculate paper dimensions and redraw paper background
-    # This ensures the paper aspect ratio is correct before drawing content.
     canvas_w = preview_canvas.winfo_width()
     canvas_h = preview_canvas.winfo_height()
     if canvas_w <= 1 or canvas_h <= 1: # Avoids error on first launch
@@ -190,10 +214,7 @@ def update_preview():
 
     # 2. Calculate layout for images
     preview_pages = []
-    current_preview_page_index = 0
-
     if not image_paths:
-        # No images, so just ensure pagination is updated
         pass
     else:
         layout_choice = layout_var.get()
@@ -208,7 +229,16 @@ def update_preview():
         else:
             preview_pages = calculate_grid_layout(image_paths)
 
-    # 3. Draw the content for the current page and update controls
+    # 3. Restore page index
+    new_total_pages = len(preview_pages)
+    if new_total_pages == 0:
+        current_preview_page_index = 0
+    elif saved_page_index < new_total_pages:
+        current_preview_page_index = saved_page_index
+    else:
+        current_preview_page_index = new_total_pages - 1
+
+    # 4. Draw the content for the current page and update controls
     draw_preview_page()
     update_pagination_controls()
 
@@ -420,13 +450,16 @@ options_frame.columnconfigure(1, weight=1)
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
 
-load_button = ttk.Button(action_frame, text="Cargar Imágenes", command=upload_files)
-load_button.pack(side=tk.LEFT, padx=5, pady=5)
+load_button = ttk.Button(action_frame, text="Cargar Imágenes", command=upload_files_replace)
+load_button.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+
+add_button = ttk.Button(action_frame, text="Añadir Imágenes", command=upload_files_add)
+add_button.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
 
 preview_button = ttk.Button(action_frame, text="Actualizar Previsualización", command=update_preview, state=tk.DISABLED)
-preview_button.pack(side=tk.LEFT, padx=5, pady=5)
+preview_button.pack(pady=5, fill=tk.X)
 
 generate_button = ttk.Button(action_frame, text="Generar PDF", command=generate_pdf, state=tk.DISABLED)
-generate_button.pack(side=tk.LEFT, padx=5, pady=5)
+generate_button.pack(pady=5, fill=tk.X)
 
 root.mainloop()
