@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
@@ -12,36 +12,96 @@ import os
 # Global variables
 image_paths = []
 paper_dims = {} # To store on-screen paper dimensions
+orientation_var = None # Will be initialized with UI
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
 preview_pages = [] # To store the layout data for all pages
 current_preview_page_index = 0 # To track the current page in the preview
 
-def upload_files():
+def get_page_size():
     """
-    Opens a file dialog to select image paths and triggers a preview update.
+    Returns the page dimensions (A4 or landscape A4) based on the UI selection.
+    """
+    if orientation_var and orientation_var.get() == "Horizontal":
+        return landscape(A4)
+    return A4
+
+def _handle_file_selection(replace_current: bool):
+    """
+    Internal logic for opening file dialog and updating the image list.
     """
     global image_paths
+    title = "Seleccionar imágenes para cargar" if replace_current else "Seleccionar imágenes para añadir"
     file_paths_tuple = filedialog.askopenfilenames(
-        title="Seleccionar imágenes",
+        title=title,
         filetypes=(("Archivos de imagen", "*.jpg *.jpeg *.png"), ("Todos los archivos", "*.*"))
     )
-    if file_paths_tuple:
-        image_paths = list(file_paths_tuple)
+
+    if not file_paths_tuple:
+        if replace_current:
+            image_paths = []
+    else:
+        if replace_current:
+            image_paths = list(file_paths_tuple)
+        else:
+            if not isinstance(image_paths, list):
+                image_paths = []
+            image_paths.extend(list(file_paths_tuple))
+
+    if image_paths:
         preview_button.config(state=tk.NORMAL)
         generate_button.config(state=tk.NORMAL)
-        update_preview()
     else:
-        image_paths = []
         preview_button.config(state=tk.DISABLED)
         generate_button.config(state=tk.DISABLED)
-        update_preview()
+
+    update_preview()
+
+def upload_files_replace():
+    """Action for the 'Cargar Imágenes' button."""
+    _handle_file_selection(replace_current=True)
+
+def upload_files_add():
+    """Action for the 'Añadir Imágenes' button."""
+    _handle_file_selection(replace_current=False)
 
 # --- Layout Calculation Logic ---
 # (This section is unchanged from the previous step)
+def get_grid_dimensions():
+    """
+    Determines the grid dimensions (rows, cols) based on the layout selection.
+    This is the single source of truth for grid sizing.
+    """
+    layout_choice = layout_var.get()
+
+    if layout_choice == "Personalizado...":
+        try:
+            rows = int(rows_var.get())
+            cols = int(cols_var.get())
+            return (rows if rows > 0 else 1, cols if cols > 0 else 1)
+        except (ValueError, tk.TclError):
+            return (1, 1)
+    else:
+        layout_configs = {
+            "1 por hoja": (1, 1), "2 por hoja": (1, 2), "3 por hoja (1x3)": (1, 3),
+            "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3), "9 por hoja (3x3)": (3, 3)
+        }
+        return layout_configs.get(layout_choice, (1, 1))
+
+def handle_layout_change(event=None):
+    """
+    Shows or hides the custom layout frame based on the combobox selection
+    and triggers a preview update.
+    """
+    if layout_var.get() == "Personalizado...":
+        custom_layout_frame.grid()
+    else:
+        custom_layout_frame.grid_remove()
+    update_preview()
+
 def calculate_mosaic_layout(image_paths):
     margin = 1 * cm
-    page_width, page_height = A4
+    page_width, page_height = get_page_size()
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
     images_data = [{'width': w, 'height': h, 'path': p}
@@ -56,9 +116,9 @@ def calculate_mosaic_layout(image_paths):
     unpacked_paths = list(all_rids - packed_rids)
     return packer, unpacked_paths
 
-def calculate_grid_layout(image_paths, layout_choice):
-    layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-    rows, cols = layout_configs[layout_choice]
+def calculate_grid_layout(image_paths):
+    rows, cols = get_grid_dimensions()
+    if rows * cols == 0: return []
     chunk_size = rows * cols
     pages = [image_paths[i:i + chunk_size] for i in range(0, len(image_paths), chunk_size)]
     return pages
@@ -77,8 +137,8 @@ def draw_preview_page():
     page_data = preview_pages[current_preview_page_index]
     layout_choice = layout_var.get()
     x0, y0, paper_w_px, paper_h_px = paper_dims['x'], paper_dims['y'], paper_dims['w'], paper_dims['h']
-    A4_w_pt, A4_h_pt = A4
-    scale = paper_w_px / A4_w_pt
+    page_width_pt, page_height_pt = get_page_size()
+    scale = paper_w_px / page_width_pt
     margin_pt = 1 * cm
 
     if layout_choice == "Mosaico (Ahorro de papel)":
@@ -99,10 +159,10 @@ def draw_preview_page():
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
                 preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(rect.rid)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
     else: # Grid layouts
-        layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-        rows, cols = layout_configs[layout_choice]
-        cell_width_pt = (A4_w_pt - 2 * margin_pt) / cols
-        cell_height_pt = (A4_h_pt - 2 * margin_pt) / rows
+        rows, cols = get_grid_dimensions()
+        if rows * cols == 0: return
+        cell_width_pt = (page_width_pt - 2 * margin_pt) / cols
+        cell_height_pt = (page_height_pt - 2 * margin_pt) / rows
         for i, path in enumerate(page_data):
             row, col = divmod(i, cols)
             x_pt = margin_pt + col * cell_width_pt
@@ -140,31 +200,57 @@ def draw_preview_page():
 
 def update_preview():
     """
-    Calculates the full layout based on selected images and options,
-    then displays the first page of the result.
+    Calculates the full layout and redraws the entire preview canvas.
+    This is the main function for refreshing the preview pane.
     """
-    global preview_pages, current_preview_page_index
+    global preview_pages, current_preview_page_index, paper_dims
 
+    # 0. Save current state
+    saved_page_index = current_preview_page_index
+
+    # 1. Recalculate paper dimensions and redraw paper background
+    canvas_w = preview_canvas.winfo_width()
+    canvas_h = preview_canvas.winfo_height()
+    if canvas_w <= 1 or canvas_h <= 1:
+        return
+
+    page_w_pt, page_h_pt = get_page_size()
+    ar = page_w_pt / page_h_pt
+    paper_w_px = min(canvas_w * 0.95, (canvas_h * 0.95) * ar)
+    paper_h_px = paper_w_px / ar
+    if paper_h_px > canvas_h * 0.95:
+        paper_h_px = canvas_h * 0.95
+        paper_w_px = paper_h_px * ar
+    x0 = (canvas_w - paper_w_px) / 2
+    y0 = (canvas_h - paper_h_px) / 2
+    preview_canvas.delete("all")
+    preview_canvas.create_rectangle(x0, y0, x0 + paper_w_px, y0 + paper_h_px, fill="white", tags="paper")
+    paper_dims = {'x': x0, 'y': y0, 'w': paper_w_px, 'h': paper_h_px}
+
+    # 2. Calculate layout for images
     preview_pages = []
-    current_preview_page_index = 0
-
-    if not image_paths or not paper_dims:
-        preview_canvas.delete("layout_item")
-    else:
+    if image_paths:
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
             try:
                 packer, _ = calculate_mosaic_layout(image_paths)
-                # A packer is an iterable of bins (pages), convert to a list of non-empty pages
                 preview_pages = [bin for bin in packer if bin]
             except Exception as e:
                 messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
                 preview_pages = []
         else:
-            # This function already returns a list of pages (lists of image paths)
-            preview_pages = calculate_grid_layout(image_paths, layout_choice)
+            preview_pages = calculate_grid_layout(image_paths)
 
-    # Always draw the current page (even if it's empty) and update controls
+    # 3. Restore page index
+    new_total_pages = len(preview_pages)
+    if new_total_pages == 0:
+        current_preview_page_index = 0
+    elif saved_page_index < new_total_pages:
+        current_preview_page_index = saved_page_index
+    else:
+        current_preview_page_index = new_total_pages - 1
+
+    # 4. Draw the content for the current page and update controls
     draw_preview_page()
     update_pagination_controls()
 
@@ -214,17 +300,17 @@ def generate_pdf():
                 return
             draw_mosaic_pdf(packed_pages, save_path)
         else: # Grid modes
-            pages = calculate_grid_layout(image_paths, layout_choice)
+            pages = calculate_grid_layout(image_paths)
             fit_mode = fit_mode_var.get()
             border_width = int(border_width_var.get())
             border_color = border_color_var.get()
-            draw_grid_pdf(pages, layout_choice, fit_mode, save_path, border_width, border_color)
+            draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color)
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error inesperado:\n{e}")
 
 def draw_mosaic_pdf(packer, save_path):
     margin = 1 * cm
-    c = canvas.Canvas(save_path, pagesize=A4)
+    c = canvas.Canvas(save_path, pagesize=get_page_size())
     for i, abin in enumerate(packer):
         if i > 0: c.showPage()
         for rect in abin:
@@ -237,11 +323,14 @@ def draw_mosaic_pdf(packer, save_path):
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
-def draw_grid_pdf(pages, layout_choice, fit_mode, save_path, border_width, border_color):
-    layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
-    rows, cols = layout_configs[layout_choice]
-    c = canvas.Canvas(save_path, pagesize=A4)
-    width, height = A4
+def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
+    rows, cols = get_grid_dimensions()
+    if rows * cols == 0:
+        messagebox.showerror("Error de Diseño", "Las filas y columnas deben ser mayores que cero.")
+        return
+    pagesize = get_page_size()
+    c = canvas.Canvas(save_path, pagesize=pagesize)
+    width, height = pagesize
     margin = 1 * cm
     cell_width = (width - 2 * margin) / cols
     cell_height = (height - 2 * margin) / rows
@@ -339,7 +428,8 @@ def redraw_paper(event):
     global paper_dims
     preview_canvas.delete("all")
     canvas_w, canvas_h = event.width, event.height
-    ar = 210 / 297
+    page_w_pt, page_h_pt = get_page_size()
+    ar = page_w_pt / page_h_pt
     paper_w = min(canvas_w * 0.95, (canvas_h * 0.95) * ar)
     paper_h = paper_w / ar
     if paper_h > canvas_h * 0.95:
@@ -356,54 +446,88 @@ preview_canvas.bind("<Configure>", redraw_paper)
 options_frame = ttk.LabelFrame(controls_panel, text="Opciones de Diseño", padding=(10, 5))
 options_frame.pack(fill=tk.X, pady=5)
 
+# --- Layout Selection (row 0) ---
 layout_label = ttk.Label(options_frame, text="Diseño por Hoja:")
 layout_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 layout_var = tk.StringVar()
-layout_options = ["1 por hoja", "2 por hoja", "4 por hoja (2x2)", "6 por hoja (2x3)", "Mosaico (Ahorro de papel)"]
+layout_options = [
+    "1 por hoja", "2 por hoja", "3 por hoja (1x3)", "4 por hoja (2x2)",
+    "6 por hoja (2x3)", "9 por hoja (3x3)", "Mosaico (Ahorro de papel)", "Personalizado..."
+]
 layout_combo = ttk.Combobox(options_frame, textvariable=layout_var, values=layout_options, state="readonly")
 layout_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 layout_combo.set("4 por hoja (2x2)")
+layout_combo.bind("<<ComboboxSelected>>", handle_layout_change)
 
+# --- Custom Layout Frame (row 1, initially hidden) ---
+custom_layout_frame = ttk.Frame(options_frame)
+custom_layout_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
+rows_label = ttk.Label(custom_layout_frame, text="Filas:")
+rows_label.pack(side=tk.LEFT, padx=(5, 5))
+rows_var = tk.StringVar(value="2")
+rows_spinbox = tk.Spinbox(custom_layout_frame, from_=1, to=10, width=5, textvariable=rows_var, command=update_preview)
+rows_spinbox.pack(side=tk.LEFT, padx=(0, 10))
+cols_label = ttk.Label(custom_layout_frame, text="Columnas:")
+cols_label.pack(side=tk.LEFT, padx=(5, 5))
+cols_var = tk.StringVar(value="2")
+cols_spinbox = tk.Spinbox(custom_layout_frame, from_=1, to=10, width=5, textvariable=cols_var, command=update_preview)
+cols_spinbox.pack(side=tk.LEFT)
+custom_layout_frame.grid_remove() # Hide it by default
+
+# --- Fit Mode (row 2) ---
 fit_mode_label = ttk.Label(options_frame, text="Modo de Ajuste:")
-fit_mode_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+fit_mode_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 fit_mode_var = tk.StringVar(value=FIT_MODE_FIT)
 fit_mode_frame = ttk.Frame(options_frame)
-fit_mode_frame.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+fit_mode_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar (con bordes)", variable=fit_mode_var, value=FIT_MODE_FIT, command=handle_fit_mode_change)
 fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", variable=fit_mode_var, value=FIT_MODE_FILL, command=handle_fit_mode_change)
 fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
 
-# --- Border Options Frame (Initially Hidden) ---
+# --- Border Options Frame (row 3, initially hidden) ---
 border_options_frame = ttk.Frame(options_frame)
-border_options_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
-
+border_options_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
 border_width_label = ttk.Label(border_options_frame, text="Grosor del Borde:")
 border_width_label.pack(side=tk.LEFT, padx=(5, 5))
 border_width_var = tk.StringVar(value="1")
 border_width_spinbox = tk.Spinbox(border_options_frame, from_=0, to=10, width=5, textvariable=border_width_var, command=update_preview)
 border_width_spinbox.pack(side=tk.LEFT, padx=(0, 10))
-
 border_color_var = tk.StringVar(value="#000000")
 border_color_button = ttk.Button(border_options_frame, text="Color del Borde", command=choose_border_color)
 border_color_button.pack(side=tk.LEFT, padx=(5,5))
 border_options_frame.grid_remove() # Hide it by default
 
+# --- Orientation (row 4) ---
+orientation_label = ttk.Label(options_frame, text="Orientación:")
+orientation_label.grid(row=4, column=0, padx=5, pady=5, sticky="w")
+orientation_var = tk.StringVar(value="Vertical")
+orientation_frame = ttk.Frame(options_frame)
+orientation_frame.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variable=orientation_var, value="Vertical", command=update_preview)
+orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
+orientation_radio_v.pack(side=tk.LEFT, expand=True)
+orientation_radio_h.pack(side=tk.LEFT, expand=True)
+
 options_frame.columnconfigure(1, weight=1)
 
 # Set initial UI state
 handle_fit_mode_change()
+handle_layout_change()
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
 
-load_button = ttk.Button(action_frame, text="Cargar Imágenes", command=upload_files)
-load_button.pack(side=tk.LEFT, padx=5, pady=5)
+load_button = ttk.Button(action_frame, text="Cargar Imágenes", command=upload_files_replace)
+load_button.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+
+add_button = ttk.Button(action_frame, text="Añadir Imágenes", command=upload_files_add)
+add_button.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
 
 preview_button = ttk.Button(action_frame, text="Actualizar Previsualización", command=update_preview, state=tk.DISABLED)
-preview_button.pack(side=tk.LEFT, padx=5, pady=5)
+preview_button.pack(pady=5, fill=tk.X)
 
 generate_button = ttk.Button(action_frame, text="Generar PDF", command=generate_pdf, state=tk.DISABLED)
-generate_button.pack(side=tk.LEFT, padx=5, pady=5)
+generate_button.pack(pady=5, fill=tk.X)
 
 root.mainloop()
