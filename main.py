@@ -11,6 +11,8 @@ import os
 # Global variables
 image_paths = []
 paper_dims = {} # To store on-screen paper dimensions
+preview_pages = [] # To store the layout data for all pages
+current_preview_page_index = 0 # To track the current page in the preview
 
 def upload_files():
     """
@@ -59,92 +61,122 @@ def calculate_grid_layout(image_paths, layout_choice):
     return pages
 
 # --- PDF Generation / Preview Logic ---
-def update_preview():
+def draw_preview_page():
     """
-    Updates the preview canvas with a visual representation of the layout.
+    Draws the currently selected page on the preview canvas.
     """
     preview_canvas.delete("layout_item")
-    # Store references to PhotoImage objects to prevent garbage collection
-    preview_canvas.thumbnail_references = []
+    preview_canvas.thumbnail_references = [] # Reset references for the new page
 
-    if not image_paths or not paper_dims:
+    if not preview_pages or not paper_dims:
         return
 
+    page_data = preview_pages[current_preview_page_index]
     layout_choice = layout_var.get()
-
     x0, y0, paper_w_px, paper_h_px = paper_dims['x'], paper_dims['y'], paper_dims['w'], paper_dims['h']
     A4_w_pt, A4_h_pt = A4
     scale = paper_w_px / A4_w_pt
     margin_pt = 1 * cm
 
     if layout_choice == "Mosaico (Ahorro de papel)":
-        try:
-            packer, _ = calculate_mosaic_layout(image_paths)
-            if any(packer):
-                first_page = packer[0]
-                for rect in first_page:
-                    px = x0 + (margin_pt + rect.x) * scale
-                    py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
-                    pw = rect.width * scale
-                    ph = rect.height * scale
-
-                    # --- Thumbnail Generation ---
-                    img = Image.open(rect.rid)
-                    if rect.rotated:
-                        img = img.rotate(90, expand=True)
-
-                    # Resize with high-quality downsampling
-                    resized_img = img.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
-                    photo_img = ImageTk.PhotoImage(resized_img)
-
-                    # Store reference and draw on canvas
-                    preview_canvas.thumbnail_references.append(photo_img)
-                    preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
-
-        except Exception as e:
-            messagebox.showerror("Error de Previsualización", f"No se pudo previsualizar el modo mosaico:\n{e}")
-    else:
-        pages = calculate_grid_layout(image_paths, layout_choice)
-        if not pages: return
-
+        for rect in page_data:
+            px = x0 + (margin_pt + rect.x) * scale
+            py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
+            pw = rect.width * scale
+            ph = rect.height * scale
+            try:
+                img = Image.open(rect.rid)
+                if rect.rotated:
+                    img = img.rotate(90, expand=True)
+                resized_img = img.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                photo_img = ImageTk.PhotoImage(resized_img)
+                preview_canvas.thumbnail_references.append(photo_img)
+                preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
+            except Exception as e:
+                preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
+                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(rect.rid)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
+    else: # Grid layouts
         layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
         rows, cols = layout_configs[layout_choice]
         cell_width_pt = (A4_w_pt - 2 * margin_pt) / cols
         cell_height_pt = (A4_h_pt - 2 * margin_pt) / rows
-
-        first_page_paths = pages[0]
-        for i, path in enumerate(first_page_paths):
+        for i, path in enumerate(page_data):
             row, col = divmod(i, cols)
-
             x_pt = margin_pt + col * cell_width_pt
             y_pt = margin_pt + (rows - 1 - row) * cell_height_pt
-
-            # For grid, we just need the cell dimensions for the placeholder
             pw = cell_width_pt * scale
             ph = cell_height_pt * scale
             px = x0 + x_pt * scale
             py = y0 + paper_h_px - (y_pt + cell_height_pt) * scale
-
-            # --- Thumbnail Generation ---
             try:
                 img = Image.open(path)
-                # Fit the image within the cell, preserving aspect ratio
                 img.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
                 photo_img = ImageTk.PhotoImage(img)
-
-                # Center the thumbnail in the cell
                 img_w, img_h = img.size
                 px_centered = px + (pw - img_w) / 2
                 py_centered = py + (ph - img_h) / 2
-
-                # Store reference and draw on canvas
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px_centered, py_centered, image=photo_img, anchor="nw", tags="layout_item")
-
             except Exception as e:
-                # Draw a placeholder if image fails to load
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
                 preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(path)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
+
+def update_preview():
+    """
+    Calculates the full layout based on selected images and options,
+    then displays the first page of the result.
+    """
+    global preview_pages, current_preview_page_index
+
+    preview_pages = []
+    current_preview_page_index = 0
+
+    if not image_paths or not paper_dims:
+        preview_canvas.delete("layout_item")
+    else:
+        layout_choice = layout_var.get()
+        if layout_choice == "Mosaico (Ahorro de papel)":
+            try:
+                packer, _ = calculate_mosaic_layout(image_paths)
+                # A packer is an iterable of bins (pages), convert to a list of non-empty pages
+                preview_pages = [bin for bin in packer if bin]
+            except Exception as e:
+                messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
+                preview_pages = []
+        else:
+            # This function already returns a list of pages (lists of image paths)
+            preview_pages = calculate_grid_layout(image_paths, layout_choice)
+
+    # Always draw the current page (even if it's empty) and update controls
+    draw_preview_page()
+    update_pagination_controls()
+
+def show_previous_page():
+    """Displays the previous page in the preview."""
+    global current_preview_page_index
+    if current_preview_page_index > 0:
+        current_preview_page_index -= 1
+        draw_preview_page()
+        update_pagination_controls()
+
+def show_next_page():
+    """Displays the next page in the preview."""
+    global current_preview_page_index
+    if current_preview_page_index < len(preview_pages) - 1:
+        current_preview_page_index += 1
+        draw_preview_page()
+        update_pagination_controls()
+
+def update_pagination_controls():
+    """Updates the state of the pagination buttons and page counter label."""
+    total_pages = len(preview_pages)
+
+    # Update label
+    page_status_label.config(text=f"Página {current_preview_page_index + 1} de {total_pages}" if total_pages > 0 else "Página 0 de 0")
+
+    # Update button states
+    prev_page_button.config(state=tk.NORMAL if current_preview_page_index > 0 else tk.DISABLED)
+    next_page_button.config(state=tk.NORMAL if current_preview_page_index < total_pages - 1 else tk.DISABLED)
 
 def generate_pdf():
     if not image_paths:
@@ -220,11 +252,28 @@ controls_panel = ttk.Frame(main_container, width=320)
 controls_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 controls_panel.pack_propagate(False)
 
-preview_panel = ttk.LabelFrame(main_container, text="Previsualización del Diseño (Página 1)")
+preview_panel = ttk.LabelFrame(main_container, text="Previsualización del Diseño")
 preview_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
 preview_canvas = tk.Canvas(preview_panel, bg="lightgrey")
-preview_canvas.pack(side="left", fill="both", expand=True)
+preview_canvas.pack(side=tk.TOP, fill="both", expand=True)
+
+# --- Pagination Controls ---
+pagination_frame = ttk.Frame(preview_panel)
+pagination_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=2)
+
+# Center the frame content by giving weight to empty outer columns
+pagination_frame.grid_columnconfigure(0, weight=1)
+pagination_frame.grid_columnconfigure(2, weight=1)
+
+prev_page_button = ttk.Button(pagination_frame, text="< Anterior", state=tk.DISABLED, command=show_previous_page)
+prev_page_button.grid(row=0, column=0, sticky='e', padx=5, pady=2)
+
+page_status_label = ttk.Label(pagination_frame, text="Página 0 de 0")
+page_status_label.grid(row=0, column=1, padx=5, pady=2)
+
+next_page_button = ttk.Button(pagination_frame, text="Siguiente >", state=tk.DISABLED, command=show_next_page)
+next_page_button.grid(row=0, column=2, sticky='w', padx=5, pady=2)
 
 def redraw_paper(event):
     global paper_dims
