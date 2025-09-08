@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from PIL import Image, ImageOps, ImageTk
@@ -13,6 +13,14 @@ image_paths = []
 paper_dims = {} # To store on-screen paper dimensions
 preview_pages = [] # To store the layout data for all pages
 current_preview_page_index = 0 # To track the current page in the preview
+
+def get_page_size():
+    """
+    Returns the page dimensions (A4 or landscape A4) based on the UI selection.
+    """
+    if orientation_var.get() == "Horizontal":
+        return landscape(A4)
+    return A4
 
 def upload_files():
     """
@@ -36,9 +44,9 @@ def upload_files():
 
 # --- Layout Calculation Logic ---
 # (This section is unchanged from the previous step)
-def calculate_mosaic_layout(image_paths):
+def calculate_mosaic_layout(image_paths, pagesize):
     margin = 1 * cm
-    page_width, page_height = A4
+    page_width, page_height = pagesize
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
     images_data = [{'width': w, 'height': h, 'path': p}
@@ -74,8 +82,8 @@ def draw_preview_page():
     page_data = preview_pages[current_preview_page_index]
     layout_choice = layout_var.get()
     x0, y0, paper_w_px, paper_h_px = paper_dims['x'], paper_dims['y'], paper_dims['w'], paper_dims['h']
-    A4_w_pt, A4_h_pt = A4
-    scale = paper_w_px / A4_w_pt
+    page_width_pt, page_height_pt = get_page_size()
+    scale = paper_w_px / page_width_pt
     margin_pt = 1 * cm
 
     if layout_choice == "Mosaico (Ahorro de papel)":
@@ -98,8 +106,8 @@ def draw_preview_page():
     else: # Grid layouts
         layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
         rows, cols = layout_configs[layout_choice]
-        cell_width_pt = (A4_w_pt - 2 * margin_pt) / cols
-        cell_height_pt = (A4_h_pt - 2 * margin_pt) / rows
+        cell_width_pt = (page_width_pt - 2 * margin_pt) / cols
+        cell_height_pt = (page_height_pt - 2 * margin_pt) / rows
         for i, path in enumerate(page_data):
             row, col = divmod(i, cols)
             x_pt = margin_pt + col * cell_width_pt
@@ -135,9 +143,10 @@ def update_preview():
         preview_canvas.delete("layout_item")
     else:
         layout_choice = layout_var.get()
+        pagesize = get_page_size()
         if layout_choice == "Mosaico (Ahorro de papel)":
             try:
-                packer, _ = calculate_mosaic_layout(image_paths)
+                packer, _ = calculate_mosaic_layout(image_paths, pagesize)
                 # A packer is an iterable of bins (pages), convert to a list of non-empty pages
                 preview_pages = [bin for bin in packer if bin]
             except Exception as e:
@@ -186,26 +195,27 @@ def generate_pdf():
     if not save_path:
         return
     try:
+        pagesize = get_page_size()
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
-            packed_pages, unpacked = calculate_mosaic_layout(image_paths)
+            packed_pages, unpacked = calculate_mosaic_layout(image_paths, pagesize)
             if unpacked:
                 msg = "Imágenes omitidas por ser demasiado grandes:\n\n" + "\n".join(f"- {os.path.basename(p)}" for p in unpacked)
                 messagebox.showwarning("Imágenes Grandes Omitidas", msg)
             if not any(packed_pages):
                 messagebox.showerror("Error", "No se pudo empaquetar ninguna imagen.")
                 return
-            draw_mosaic_pdf(packed_pages, save_path)
+            draw_mosaic_pdf(packed_pages, save_path, pagesize)
         else: # Grid modes
             pages = calculate_grid_layout(image_paths, layout_choice)
             fit_mode = fit_mode_var.get()
-            draw_grid_pdf(pages, layout_choice, fit_mode, save_path)
+            draw_grid_pdf(pages, layout_choice, fit_mode, save_path, pagesize)
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error inesperado:\n{e}")
 
-def draw_mosaic_pdf(packer, save_path):
+def draw_mosaic_pdf(packer, save_path, pagesize):
     margin = 1 * cm
-    c = canvas.Canvas(save_path, pagesize=A4)
+    c = canvas.Canvas(save_path, pagesize=pagesize)
     for i, abin in enumerate(packer):
         if i > 0: c.showPage()
         for rect in abin:
@@ -218,11 +228,11 @@ def draw_mosaic_pdf(packer, save_path):
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
-def draw_grid_pdf(pages, layout_choice, fit_mode, save_path):
+def draw_grid_pdf(pages, layout_choice, fit_mode, save_path, pagesize):
     layout_configs = {"1 por hoja": (1, 1), "2 por hoja": (1, 2), "4 por hoja (2x2)": (2, 2), "6 por hoja (2x3)": (2, 3)}
     rows, cols = layout_configs[layout_choice]
-    c = canvas.Canvas(save_path, pagesize=A4)
-    width, height = A4
+    c = canvas.Canvas(save_path, pagesize=pagesize)
+    width, height = pagesize
     margin = 1 * cm
     cell_width = (width - 2 * margin) / cols
     cell_height = (height - 2 * margin) / rows
@@ -242,7 +252,7 @@ def draw_grid_pdf(pages, layout_choice, fit_mode, save_path):
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.4")
+root.title("Impresión Maestra - v1.5")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
@@ -279,7 +289,8 @@ def redraw_paper(event):
     global paper_dims
     preview_canvas.delete("all")
     canvas_w, canvas_h = event.width, event.height
-    ar = 210 / 297
+    page_w_pt, page_h_pt = get_page_size()
+    ar = page_w_pt / page_h_pt
     paper_w = min(canvas_w * 0.95, (canvas_h * 0.95) * ar)
     paper_h = paper_w / ar
     if paper_h > canvas_h * 0.95:
@@ -303,17 +314,28 @@ layout_options = ["1 por hoja", "2 por hoja", "4 por hoja (2x2)", "6 por hoja (2
 layout_combo = ttk.Combobox(options_frame, textvariable=layout_var, values=layout_options, state="readonly")
 layout_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 layout_combo.set("4 por hoja (2x2)")
+layout_combo.bind("<<ComboboxSelected>>", lambda e: update_preview())
 
 fit_mode_label = ttk.Label(options_frame, text="Modo de Ajuste:")
 fit_mode_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-fit_mode_var = tk.StringVar()
+fit_mode_var = tk.StringVar(value="Ajustar")
 fit_mode_frame = ttk.Frame(options_frame)
 fit_mode_frame.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar (con bordes)", variable=fit_mode_var, value="Ajustar")
-fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", variable=fit_mode_var, value="Rellenar")
+fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar (con bordes)", variable=fit_mode_var, value="Ajustar", command=update_preview)
+fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", variable=fit_mode_var, value="Rellenar", command=update_preview)
 fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
-fit_mode_var.set("Ajustar")
+
+orientation_label = ttk.Label(options_frame, text="Orientación:")
+orientation_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+orientation_var = tk.StringVar(value="Vertical")
+orientation_frame = ttk.Frame(options_frame)
+orientation_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variable=orientation_var, value="Vertical", command=update_preview)
+orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
+orientation_radio_v.pack(side=tk.LEFT, expand=True)
+orientation_radio_h.pack(side=tk.LEFT, expand=True)
+
 options_frame.columnconfigure(1, weight=1)
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
