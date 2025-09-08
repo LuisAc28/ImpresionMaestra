@@ -131,32 +131,55 @@ def draw_preview_page():
 
 def update_preview():
     """
-    Calculates the full layout based on selected images and options,
-    then displays the first page of the result.
+    Calculates the full layout and redraws the entire preview canvas.
+    This is the main function for refreshing the preview pane.
     """
-    global preview_pages, current_preview_page_index
+    global preview_pages, current_preview_page_index, paper_dims
 
+    # 1. Recalculate paper dimensions and redraw paper background
+    # This ensures the paper aspect ratio is correct before drawing content.
+    canvas_w = preview_canvas.winfo_width()
+    canvas_h = preview_canvas.winfo_height()
+    if canvas_w <= 1 or canvas_h <= 1: # Avoids error on first launch
+        return
+
+    page_w_pt, page_h_pt = get_page_size()
+    ar = page_w_pt / page_h_pt
+
+    paper_w_px = min(canvas_w * 0.95, (canvas_h * 0.95) * ar)
+    paper_h_px = paper_w_px / ar
+    if paper_h_px > canvas_h * 0.95:
+        paper_h_px = canvas_h * 0.95
+        paper_w_px = paper_h_px * ar
+
+    x0 = (canvas_w - paper_w_px) / 2
+    y0 = (canvas_h - paper_h_px) / 2
+
+    preview_canvas.delete("all")
+    preview_canvas.create_rectangle(x0, y0, x0 + paper_w_px, y0 + paper_h_px, fill="white", tags="paper")
+    paper_dims = {'x': x0, 'y': y0, 'w': paper_w_px, 'h': paper_h_px}
+
+    # 2. Calculate layout for images
     preview_pages = []
     current_preview_page_index = 0
 
-    if not image_paths or not paper_dims:
-        preview_canvas.delete("layout_item")
+    if not image_paths:
+        # No images, so just ensure pagination is updated
+        pass
     else:
         layout_choice = layout_var.get()
-        pagesize = get_page_size()
+        pagesize = (page_w_pt, page_h_pt)
         if layout_choice == "Mosaico (Ahorro de papel)":
             try:
                 packer, _ = calculate_mosaic_layout(image_paths, pagesize)
-                # A packer is an iterable of bins (pages), convert to a list of non-empty pages
                 preview_pages = [bin for bin in packer if bin]
             except Exception as e:
                 messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
                 preview_pages = []
         else:
-            # This function already returns a list of pages (lists of image paths)
             preview_pages = calculate_grid_layout(image_paths, layout_choice)
 
-    # Always draw the current page (even if it's empty) and update controls
+    # 3. Draw the content for the current page and update controls
     draw_preview_page()
     update_pagination_controls()
 
@@ -286,20 +309,9 @@ next_page_button = ttk.Button(pagination_frame, text="Siguiente >", state=tk.DIS
 next_page_button.grid(row=0, column=2, sticky='w', padx=5, pady=2)
 
 def redraw_paper(event):
-    global paper_dims
-    preview_canvas.delete("all")
-    canvas_w, canvas_h = event.width, event.height
-    page_w_pt, page_h_pt = get_page_size()
-    ar = page_w_pt / page_h_pt
-    paper_w = min(canvas_w * 0.95, (canvas_h * 0.95) * ar)
-    paper_h = paper_w / ar
-    if paper_h > canvas_h * 0.95:
-        paper_h = canvas_h * 0.95
-        paper_w = paper_h * ar
-    x0 = (canvas_w - paper_w) / 2
-    y0 = (canvas_h - paper_h) / 2
-    preview_canvas.create_rectangle(x0, y0, x0 + paper_w, y0 + paper_h, fill="white", tags="paper")
-    paper_dims = {'x': x0, 'y': y0, 'w': paper_w, 'h': paper_h}
+    """
+    Handles canvas resize events by triggering a full preview update.
+    """
     update_preview()
 
 preview_canvas.bind("<Configure>", redraw_paper)
