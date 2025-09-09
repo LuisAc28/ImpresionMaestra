@@ -247,8 +247,10 @@ def handle_layout_change(event=None):
 
     if selected_layout == "Mosaico (Ahorro de papel)":
         mosaic_options_frame.grid()
+        mosaic_unify_frame.grid()
     else:
         mosaic_options_frame.grid_remove()
+        mosaic_unify_frame.grid_remove()
 
     update_preview()
 
@@ -768,12 +770,24 @@ auto_fit_button = ttk.Button(mosaic_options_frame, text="Ajuste Automático", co
 auto_fit_button.pack(side=tk.LEFT, padx=(5, 0))
 mosaic_options_frame.grid_remove()
 
-# --- Fit Mode (row 3) ---
+# --- Mosaic Unify Frame (row 3, initially hidden) ---
+mosaic_unify_frame = ttk.LabelFrame(options_frame, text="Unificar Dimensiones de Mosaico")
+mosaic_unify_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+mosaic_unify_var = tk.StringVar(value="none")
+unify_none_radio = ttk.Radiobutton(mosaic_unify_frame, text="Ninguno", variable=mosaic_unify_var, value="none", command=update_preview)
+unify_width_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Anchos", variable=mosaic_unify_var, value="width", command=update_preview)
+unify_height_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Alturas", variable=mosaic_unify_var, value="height", command=update_preview)
+unify_none_radio.pack(side=tk.LEFT, expand=True, padx=5)
+unify_width_radio.pack(side=tk.LEFT, expand=True, padx=5)
+unify_height_radio.pack(side=tk.LEFT, expand=True, padx=5)
+mosaic_unify_frame.grid_remove()
+
+# --- Fit Mode (row 4) ---
 fit_mode_label = ttk.Label(options_frame, text="Modo de Ajuste:")
-fit_mode_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
+fit_mode_label.grid(row=4, column=0, padx=5, pady=5, sticky="w")
 fit_mode_var = tk.StringVar(value=FIT_MODE_FIT)
 fit_mode_frame = ttk.Frame(options_frame)
-fit_mode_frame.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+fit_mode_frame.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
 fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar", variable=fit_mode_var, value=FIT_MODE_FIT, command=handle_fit_mode_change)
 fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar", variable=fit_mode_var, value=FIT_MODE_FILL, command=handle_fit_mode_change)
 fit_radio_deform = ttk.Radiobutton(fit_mode_frame, text="Deformar", variable=fit_mode_var, value=FIT_MODE_DEFORM, command=handle_fit_mode_change)
@@ -781,9 +795,9 @@ fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
 fit_radio_deform.pack(side=tk.LEFT, expand=True)
 
-# --- Border Options Frame (row 4, initially hidden) ---
+# --- Border Options Frame (row 5, initially hidden) ---
 border_options_frame = ttk.Frame(options_frame)
-border_options_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
+border_options_frame.grid(row=5, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
 border_width_label = ttk.Label(border_options_frame, text="Grosor del Borde:")
 border_width_label.pack(side=tk.LEFT, padx=(5, 5))
 border_width_var = tk.StringVar(value="1")
@@ -794,12 +808,12 @@ border_color_button = ttk.Button(border_options_frame, text="Color del Borde", c
 border_color_button.pack(side=tk.LEFT, padx=(5,5))
 border_options_frame.grid_remove()
 
-# --- Orientation (row 5) ---
+# --- Orientation (row 6) ---
 orientation_label = ttk.Label(options_frame, text="Orientación:")
-orientation_label.grid(row=5, column=0, padx=5, pady=5, sticky="w")
+orientation_label.grid(row=6, column=0, padx=5, pady=5, sticky="w")
 orientation_var = tk.StringVar(value="Vertical")
 orientation_frame = ttk.Frame(options_frame)
-orientation_frame.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+orientation_frame.grid(row=6, column=1, padx=5, pady=5, sticky="ew")
 orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variable=orientation_var, value="Vertical", command=update_preview)
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
