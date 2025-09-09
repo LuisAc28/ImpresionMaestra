@@ -357,23 +357,36 @@ def draw_preview_page():
     margin_pt = 1 * cm
 
     if layout_choice == "Mosaico (Ahorro de papel)":
+        # For mosaic, the Y-coordinate needs to be inverted from bottom-left (rectpack)
+        # to top-left (tkinter), and the reference height might not be the full page
+        # on the last page.
+
+        # 1. Find the actual height of the content on this specific page
+        page_content_height_pt = 0
+        if page_data:
+            page_content_height_pt = max(r.y + r.height for r in page_data)
+
+        reference_height_px = page_content_height_pt * scale
+        margin_px = margin_pt * scale
+
         for rect in page_data:
-            # Reverted to bottom-left packing, so Y-inversion is needed again.
-            px = x0 + (margin_pt + rect.x) * scale
-            py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
+            # 2. Calculate final coordinates using the dynamic content height
+            px = x0 + margin_px + (rect.x * scale)
+
+            # The top of the rect in a bottom-up system is (rect.y + rect.height)
+            # We subtract this from the total content height to get the top-down position.
+            py = y0 + margin_px + reference_height_px - ((rect.y + rect.height) * scale)
+
             pw = rect.width * scale
             ph = rect.height * scale
             try:
                 img = rect.rid['image']
                 original_w = rect.rid['original_w']
 
-                # Infer rotation by comparing final width with original scaled width
-                if rect.width == original_w:
-                    # Not rotated (or scaled down, but same orientation)
-                    img_to_draw = img
-                else:
-                    # Rotated
+                if abs(rect.width - original_w) > 1e-6: # Compare floats with tolerance
                     img_to_draw = img.rotate(90, expand=True)
+                else:
+                    img_to_draw = img
 
                 resized_img = img_to_draw.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
                 photo_img = ImageTk.PhotoImage(resized_img)
