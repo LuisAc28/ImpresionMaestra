@@ -152,25 +152,36 @@ def smart_crop(img, target_w, target_h):
     Crops and resizes an image to fill the target dimensions,
     centering on detected faces or the geometric center.
     """
-    # 1. Find the smart center point
     face_cascade = get_face_cascade()
-    if face_cascade is None: # Fallback if cascade file is missing
+    if face_cascade is None:
         return ImageOps.fit(img, (target_w, target_h), method=Image.Resampling.LANCZOS)
 
-    img_np = np.array(img.convert('RGB'))
+    # --- Optimization: Detect on a smaller image ---
+    original_w, original_h = img.size
+    detection_width = 400  # pixels
+
+    if original_w > detection_width:
+        scale_ratio = original_w / detection_width
+        detection_height = int(original_h / scale_ratio)
+        detect_img = img.resize((detection_width, detection_height), Image.Resampling.LANCZOS)
+    else:
+        scale_ratio = 1.0
+        detect_img = img
+
+    img_np = np.array(detect_img.convert('RGB'))
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
     if len(faces) > 0:
-        # If faces are found, calculate the center of all faces
-        x_coords = [x + w / 2 for x, y, w, h in faces]
-        y_coords = [y + h / 2 for x, y, w, h in faces]
+        # Scale face coordinates back to the original image size
+        scaled_faces = [(int(x * scale_ratio), int(y * scale_ratio), int(w * scale_ratio), int(h * scale_ratio)) for x, y, w, h in faces]
+        x_coords = [x + w / 2 for x, y, w, h in scaled_faces]
+        y_coords = [y + h / 2 for x, y, w, h in scaled_faces]
         center_x = sum(x_coords) / len(x_coords)
         center_y = sum(y_coords) / len(y_coords)
     else:
-        # Otherwise, use the geometric center
-        center_x = img.width / 2
-        center_y = img.height / 2
+        center_x = original_w / 2
+        center_y = original_h / 2
 
     # 2. Re-implement ImageOps.fit logic with the smart center
     source_w, source_h = img.size
