@@ -722,6 +722,12 @@ def choose_border_color():
         border_color_var.set(color_code[1])
         update_preview()
 
+def set_initial_sash_positions(event):
+    """Set the initial sash positions after the window is configured."""
+    main_paned_window.sashpos(0, 120)
+    main_paned_window.sashpos(1, 400)
+    main_paned_window.unbind("<Configure>")
+
 
 # --- UI Setup ---
 root = tk.Tk()
@@ -731,6 +737,7 @@ root.geometry("1024x768")
 # Main layout with 3 resizable panels
 main_paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
 main_paned_window.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+main_paned_window.bind("<Configure>", set_initial_sash_positions)
 
 # Left Panel: Thumbnails
 thumbnails_panel = ttk.LabelFrame(main_paned_window, text="Imágenes Cargadas")
@@ -907,11 +914,6 @@ handle_layout_change()
 
 # Load resources at startup
 load_resources()
-
-# Set initial sash positions for the PanedWindow
-root.update_idletasks()
-main_paned_window.sashpos(0, 120)
-main_paned_window.sashpos(1, 400)
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
