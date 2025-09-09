@@ -283,7 +283,11 @@ def calculate_mosaic_layout(images_data_list):
         rid_data = {'image': r['rid'][0], 'path': r['rid'][1], 'original_w': w, 'original_h': h}
         final_rects.append({'width': w, 'height': h, 'rid': rid_data})
 
-    packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
+    packer = rectpack.newPacker(
+        pack_algo=rectpack.MaxRectsTlh,
+        sort_algo=rectpack.SORT_AREA | rectpack.SORT_REVERSE,
+        rotation=True
+    )
     for r in final_rects:
         packer.add_rect(r['width'], r['height'], rid=r['rid'])
 
@@ -327,8 +331,9 @@ def draw_preview_page():
 
     if layout_choice == "Mosaico (Ahorro de papel)":
         for rect in page_data:
+            # With a top-left packing algorithm, the y-coordinate calculation is direct.
             px = x0 + (margin_pt + rect.x) * scale
-            py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
+            py = y0 + (margin_pt + rect.y) * scale
             pw = rect.width * scale
             ph = rect.height * scale
             try:
@@ -546,8 +551,10 @@ def draw_mosaic_pdf(pages, save_path):
             else:
                 img_to_draw = img.rotate(90, expand=True)
 
+            page_height = get_page_size()[1]
             x = margin + rect.x
-            y = margin + rect.y
+            # Invert y-coordinate for PDF's bottom-left origin
+            y = page_height - (margin + rect.y + rect.height)
             c.drawImage(ImageReader(img_to_draw), x, y, width=rect.width, height=rect.height)
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
