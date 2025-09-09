@@ -284,8 +284,8 @@ def calculate_mosaic_layout(images_data_list):
         final_rects.append({'width': w, 'height': h, 'rid': rid_data})
 
     packer = rectpack.newPacker(
-        pack_algo=rectpack.MaxRectsTlh,
-        sort_algo=rectpack.SORT_AREA | rectpack.SORT_REVERSE,
+        pack_algo=rectpack.MaxRectsBl,
+        sort_algo=rectpack.SORT_AREA,
         rotation=True
     )
     for r in final_rects:
@@ -352,6 +352,9 @@ def draw_preview_page():
                 photo_img = ImageTk.PhotoImage(resized_img)
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
+                # Add debug text showing the y-coordinate
+                debug_text = f"y={rect.y}"
+                preview_canvas.create_text(px + 4, py + 4, text=debug_text, anchor="nw", font=("Arial", 8), fill="blue", tags="layout_item")
             except Exception as e:
                 print(f"Error drawing mosaic preview for rect: {rect.rid}. Exception: {e}")
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
