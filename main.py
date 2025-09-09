@@ -235,13 +235,21 @@ def get_grid_dimensions():
 
 def handle_layout_change(event=None):
     """
-    Shows or hides the custom layout frame based on the combobox selection
+    Shows or hides the custom/mosaic option frames based on the combobox selection
     and triggers a preview update.
     """
-    if layout_var.get() == "Personalizado...":
+    selected_layout = layout_var.get()
+
+    if selected_layout == "Personalizado...":
         custom_layout_frame.grid()
     else:
         custom_layout_frame.grid_remove()
+
+    if selected_layout == "Mosaico (Ahorro de papel)":
+        mosaic_options_frame.grid()
+    else:
+        mosaic_options_frame.grid_remove()
+
     update_preview()
 
 def calculate_mosaic_layout(images_data_list):
@@ -250,8 +258,10 @@ def calculate_mosaic_layout(images_data_list):
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
 
-    # images_data_list is a list of (Image, path) tuples
-    rects_data = [{'width': img.width, 'height': img.height, 'rid': (img, path)}
+    scale_factor = mosaic_scale_var.get() / 100.0
+
+    # Scale image dimensions before packing
+    rects_data = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
                   for img, path in images_data_list]
 
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
@@ -572,7 +582,7 @@ def choose_border_color():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.7")
+root.title("Impresión Maestra - v1.9")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
@@ -653,14 +663,24 @@ cols_label.pack(side=tk.LEFT, padx=(5, 5))
 cols_var = tk.StringVar(value="2")
 cols_spinbox = tk.Spinbox(custom_layout_frame, from_=1, to=10, width=5, textvariable=cols_var, command=update_preview)
 cols_spinbox.pack(side=tk.LEFT)
-custom_layout_frame.grid_remove() # Hide it by default
+custom_layout_frame.grid_remove()
 
-# --- Fit Mode (row 2) ---
+# --- Mosaic Options Frame (row 2, initially hidden) ---
+mosaic_options_frame = ttk.Frame(options_frame)
+mosaic_options_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
+mosaic_scale_label = ttk.Label(mosaic_options_frame, text="Tamaño de Mosaico:")
+mosaic_scale_label.pack(side=tk.LEFT, padx=(5, 5))
+mosaic_scale_var = tk.DoubleVar(value=100)
+mosaic_scale_slider = ttk.Scale(mosaic_options_frame, from_=25, to=200, variable=mosaic_scale_var, orient=tk.HORIZONTAL, command=lambda e: update_preview())
+mosaic_scale_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+mosaic_options_frame.grid_remove()
+
+# --- Fit Mode (row 3) ---
 fit_mode_label = ttk.Label(options_frame, text="Modo de Ajuste:")
-fit_mode_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+fit_mode_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
 fit_mode_var = tk.StringVar(value=FIT_MODE_FIT)
 fit_mode_frame = ttk.Frame(options_frame)
-fit_mode_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+fit_mode_frame.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar", variable=fit_mode_var, value=FIT_MODE_FIT, command=handle_fit_mode_change)
 fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar", variable=fit_mode_var, value=FIT_MODE_FILL, command=handle_fit_mode_change)
 fit_radio_deform = ttk.Radiobutton(fit_mode_frame, text="Deformar", variable=fit_mode_var, value=FIT_MODE_DEFORM, command=handle_fit_mode_change)
@@ -668,9 +688,9 @@ fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
 fit_radio_deform.pack(side=tk.LEFT, expand=True)
 
-# --- Border Options Frame (row 3, initially hidden) ---
+# --- Border Options Frame (row 4, initially hidden) ---
 border_options_frame = ttk.Frame(options_frame)
-border_options_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
+border_options_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=0, sticky="ew")
 border_width_label = ttk.Label(border_options_frame, text="Grosor del Borde:")
 border_width_label.pack(side=tk.LEFT, padx=(5, 5))
 border_width_var = tk.StringVar(value="1")
@@ -679,14 +699,14 @@ border_width_spinbox.pack(side=tk.LEFT, padx=(0, 10))
 border_color_var = tk.StringVar(value="#000000")
 border_color_button = ttk.Button(border_options_frame, text="Color del Borde", command=choose_border_color)
 border_color_button.pack(side=tk.LEFT, padx=(5,5))
-border_options_frame.grid_remove() # Hide it by default
+border_options_frame.grid_remove()
 
-# --- Orientation (row 4) ---
+# --- Orientation (row 5) ---
 orientation_label = ttk.Label(options_frame, text="Orientación:")
-orientation_label.grid(row=4, column=0, padx=5, pady=5, sticky="w")
+orientation_label.grid(row=5, column=0, padx=5, pady=5, sticky="w")
 orientation_var = tk.StringVar(value="Vertical")
 orientation_frame = ttk.Frame(options_frame)
-orientation_frame.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+orientation_frame.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
 orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variable=orientation_var, value="Vertical", command=update_preview)
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
