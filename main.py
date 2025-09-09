@@ -204,42 +204,48 @@ def draw_preview_page():
     else: # Grid layouts
         rows, cols = get_grid_dimensions()
         if rows * cols == 0: return
-        cell_width_pt = (page_width_pt - 2 * margin_pt) / cols
-        cell_height_pt = (page_height_pt - 2 * margin_pt) / rows
+
+        # Simplified, pixel-based calculation for preview
+        margin_px = margin_pt * scale
+        drawable_w = paper_w_px - (2 * margin_px)
+        drawable_h = paper_h_px - (2 * margin_px)
+        cell_w_px = drawable_w / cols
+        cell_h_px = drawable_h / rows
+
         for i, (img, path) in enumerate(page_data):
             row, col = divmod(i, cols)
-            x_pt = margin_pt + col * cell_width_pt
-            y_pt = margin_pt + (rows - 1 - row) * cell_height_pt
-            pw = cell_width_pt * scale
-            ph = cell_height_pt * scale
-            px = x0 + x_pt * scale
-            py = y0 + paper_h_px - (y_pt + cell_height_pt) * scale
+
+            # Cell position directly in canvas coordinates
+            px = x0 + margin_px + (col * cell_w_px)
+            py = y0 + margin_px + (row * cell_h_px)
+            pw = cell_w_px
+            ph = cell_h_px
+
             try:
-                # Create a copy for thumbnail to avoid modifying the original object
                 img_copy = img.copy()
                 img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
                 photo_img = ImageTk.PhotoImage(img_copy)
+
                 img_w, img_h = img.size
                 px_centered = px + (pw - img_w) / 2
                 py_centered = py + (ph - img_h) / 2
+
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px_centered, py_centered, image=photo_img, anchor="nw", tags="layout_item")
 
-                # Draw border for 'Ajustar' mode
                 if fit_mode_var.get() == FIT_MODE_FIT:
                     try:
                         border_width = int(border_width_var.get())
                         if border_width > 0:
                             border_color = border_color_var.get()
-                            # Draw border around the entire cell
                             preview_canvas.create_rectangle(
-                                px, py,
-                                px + pw, py + ph,
+                                px, py, px + pw, py + ph,
                                 outline=border_color, width=border_width, tags="layout_item"
                             )
                     except (ValueError, tk.TclError):
-                        pass # Ignore errors from invalid border width during typing
+                        pass
             except Exception as e:
+                # Fallback to drawing a simple error box in the cell
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
                 preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(path)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
 
