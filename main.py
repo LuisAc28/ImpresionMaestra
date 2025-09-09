@@ -15,6 +15,7 @@ import numpy as np
 loaded_images_data = [] # List of (Image, path) tuples
 paper_dims = {} # To store on-screen paper dimensions
 orientation_var = None # Will be initialized with UI
+face_cascade = None # To cache the loaded Haar Cascade classifier
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
 preview_pages = [] # To store the layout data for all pages
@@ -76,6 +77,24 @@ def upload_files_add():
     _handle_file_selection(replace_current=False)
 
 # --- Layout Calculation Logic ---
+def get_face_cascade():
+    """
+    Loads and caches the Haar Cascade classifier for face detection.
+    Shows an error message if the file is not found.
+    """
+    global face_cascade
+    if face_cascade is None:
+        cascade_path = 'haarcascade_frontalface_default.xml'
+        if not os.path.exists(cascade_path):
+            messagebox.showerror(
+                "Error de Recurso",
+                f"No se encontró el archivo del clasificador de caras:\n{cascade_path}\n\n"
+                "Por favor, descárguelo y colóquelo en la misma carpeta que main.py."
+            )
+            return None
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+    return face_cascade
+
 def trim_whitespace(image):
     """
     Detects and crops empty borders (white or transparent) from a Pillow image.
@@ -104,6 +123,59 @@ def trim_whitespace(image):
 
     # Crop the original Pillow image
     return image.crop((x_min, y_min, x_max + 1, y_max + 1))
+
+def smart_crop(img, target_w, target_h):
+    """
+    Crops and resizes an image to fill the target dimensions,
+    centering on detected faces or the geometric center.
+    """
+    # 1. Find the smart center point
+    face_cascade = get_face_cascade()
+    if face_cascade is None: # Fallback if cascade file is missing
+        return ImageOps.fit(img, (target_w, target_h), method=Image.Resampling.LANCZOS)
+
+    img_np = np.array(img.convert('RGB'))
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+    if len(faces) > 0:
+        # If faces are found, calculate the center of all faces
+        x_coords = [x + w / 2 for x, y, w, h in faces]
+        y_coords = [y + h / 2 for x, y, w, h in faces]
+        center_x = sum(x_coords) / len(x_coords)
+        center_y = sum(y_coords) / len(y_coords)
+    else:
+        # Otherwise, use the geometric center
+        center_x = img.width / 2
+        center_y = img.height / 2
+
+    # 2. Re-implement ImageOps.fit logic with the smart center
+    source_w, source_h = img.size
+    target_ar = target_w / target_h
+    source_ar = source_w / source_h
+
+    if source_ar > target_ar: # Source is wider than target, crop sides
+        crop_w = source_h * target_ar
+        crop_h = source_h
+        left = max(0, center_x - crop_w / 2)
+        top = 0
+        right = min(source_w, left + crop_w)
+        if right == source_w: # Adjust left if we hit the right edge
+            left = source_w - crop_w
+        bottom = crop_h
+    else: # Source is taller than target, crop top/bottom
+        crop_w = source_w
+        crop_h = source_w / target_ar
+        left = 0
+        top = max(0, center_y - crop_h / 2)
+        right = crop_w
+        bottom = min(source_h, top + crop_h)
+        if bottom == source_h: # Adjust top if we hit the bottom edge
+            top = source_h - crop_h
+
+    box = (left, top, right, bottom)
+    cropped_img = img.crop(box)
+    return cropped_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
 def get_grid_dimensions():
     """
@@ -223,12 +295,17 @@ def draw_preview_page():
 
             try:
                 img_copy = img.copy()
-                img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
-                photo_img = ImageTk.PhotoImage(img_copy)
-
-                img_w, img_h = img_copy.size
-                px_centered = px + (pw - img_w) / 2
-                py_centered = py + (ph - img_h) / 2
+                if fit_mode_var.get() == FIT_MODE_FIT:
+                    img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                    photo_img = ImageTk.PhotoImage(img_copy)
+                    img_w, img_h = img_copy.size
+                    px_centered = px + (pw - img_w) / 2
+                    py_centered = py + (ph - img_h) / 2
+                else: # FIT_MODE_FILL
+                    img_copy = smart_crop(img_copy, int(pw), int(ph))
+                    photo_img = ImageTk.PhotoImage(img_copy)
+                    px_centered = px
+                    py_centered = py
 
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px_centered, py_centered, image=photo_img, anchor="nw", tags="layout_item")
@@ -417,7 +494,7 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h)
 
             elif fit_mode == FIT_MODE_FILL:
-                cropped_img = ImageOps.fit(img, (int(cell_width), int(cell_height)), method=Image.Resampling.LANCZOS)
+                cropped_img = smart_crop(img, int(cell_width), int(cell_height))
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
