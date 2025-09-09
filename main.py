@@ -205,20 +205,21 @@ def draw_preview_page():
         rows, cols = get_grid_dimensions()
         if rows * cols == 0: return
 
-        # New, simplified algorithm based on the full canvas dimensions
-        canvas_width = preview_canvas.winfo_width()
-        canvas_height = preview_canvas.winfo_height()
-        cell_width = canvas_width / cols
-        cell_height = canvas_height / rows
+        # Corrected logic: Calculate based on the on-screen paper dimensions
+        margin_px = margin_pt * scale
+        drawable_w = paper_w_px - (2 * margin_px)
+        drawable_h = paper_h_px - (2 * margin_px)
+        cell_w_px = drawable_w / cols
+        cell_h_px = drawable_h / rows
 
         for i, (img, path) in enumerate(page_data):
             row, col = divmod(i, cols)
 
-            # Calculate cell's top-left corner
-            px = col * cell_width
-            py = row * cell_height
-            pw = cell_width
-            ph = cell_height
+            # Cell position relative to the paper, not the whole canvas
+            px = x0 + margin_px + (col * cell_w_px)
+            py = y0 + margin_px + (row * cell_h_px)
+            pw = cell_w_px
+            ph = cell_h_px
 
             try:
                 img_copy = img.copy()
