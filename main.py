@@ -29,6 +29,11 @@ face_cascade = None # To cache the loaded Haar Cascade classifier
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
 FIT_MODE_DEFORM = "deform"
+
+MOSAIC_UNIFY_NONE = "none"
+MOSAIC_UNIFY_WIDTH = "width"
+MOSAIC_UNIFY_HEIGHT = "height"
+
 preview_pages = [] # To store the layout data for all pages
 current_preview_page_index = 0 # To track the current page in the preview
 
@@ -267,15 +272,35 @@ def _run_mosaic_packing(images_data_list, scale_percentage):
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
 
-    max_dim = 0
-    for img, path in images_data_list:
-        max_dim = max(max_dim, img.width, img.height)
+    unify_mode = mosaic_unify_var.get()
+    initial_rects = []
 
-    target_size = bin_width * (scale_percentage / 100.0)
-    scale_factor = target_size / max_dim if max_dim > 0 else 0
+    if unify_mode == MOSAIC_UNIFY_NONE:
+        max_dim = 0
+        for img, path in images_data_list:
+            max_dim = max(max_dim, img.width, img.height)
+        target_size = bin_width * (scale_percentage / 100.0)
+        scale_factor = target_size / max_dim if max_dim > 0 else 0
+        initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
+                         for img, path in images_data_list]
 
-    initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
-                     for img, path in images_data_list]
+    elif unify_mode == MOSAIC_UNIFY_WIDTH:
+        target_width = bin_width * (scale_percentage / 100.0)
+        for img, path in images_data_list:
+            original_w, original_h = img.size
+            aspect_ratio = original_h / original_w if original_w > 0 else 0
+            new_w = target_width
+            new_h = new_w * aspect_ratio
+            initial_rects.append({'width': new_w, 'height': new_h, 'rid': (img, path)})
+
+    elif unify_mode == MOSAIC_UNIFY_HEIGHT:
+        target_height = bin_height * (scale_percentage / 100.0)
+        for img, path in images_data_list:
+            original_w, original_h = img.size
+            aspect_ratio = original_w / original_h if original_h > 0 else 0
+            new_h = target_height
+            new_w = new_h * aspect_ratio
+            initial_rects.append({'width': new_w, 'height': new_h, 'rid': (img, path)})
 
     final_rects = []
     for r in initial_rects:
@@ -675,7 +700,7 @@ def choose_border_color():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v2.0")
+root.title("Impresión Maestra - v2.1")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
@@ -773,10 +798,10 @@ mosaic_options_frame.grid_remove()
 # --- Mosaic Unify Frame (row 3, initially hidden) ---
 mosaic_unify_frame = ttk.LabelFrame(options_frame, text="Unificar Dimensiones de Mosaico")
 mosaic_unify_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
-mosaic_unify_var = tk.StringVar(value="none")
-unify_none_radio = ttk.Radiobutton(mosaic_unify_frame, text="Ninguno", variable=mosaic_unify_var, value="none", command=update_preview)
-unify_width_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Anchos", variable=mosaic_unify_var, value="width", command=update_preview)
-unify_height_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Alturas", variable=mosaic_unify_var, value="height", command=update_preview)
+mosaic_unify_var = tk.StringVar(value=MOSAIC_UNIFY_NONE)
+unify_none_radio = ttk.Radiobutton(mosaic_unify_frame, text="Ninguno", variable=mosaic_unify_var, value=MOSAIC_UNIFY_NONE, command=update_preview)
+unify_width_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Anchos", variable=mosaic_unify_var, value=MOSAIC_UNIFY_WIDTH, command=update_preview)
+unify_height_radio = ttk.Radiobutton(mosaic_unify_frame, text="Unificar Alturas", variable=mosaic_unify_var, value=MOSAIC_UNIFY_HEIGHT, command=update_preview)
 unify_none_radio.pack(side=tk.LEFT, expand=True, padx=5)
 unify_width_radio.pack(side=tk.LEFT, expand=True, padx=5)
 unify_height_radio.pack(side=tk.LEFT, expand=True, padx=5)
