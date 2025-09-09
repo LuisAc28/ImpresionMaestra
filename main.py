@@ -565,7 +565,7 @@ def show_next_page():
         update_pagination_controls()
 
 def update_thumbnails_panel():
-    """Clears and repopulates the thumbnail list in the left panel."""
+    """Clears and repopulates the thumbnail list in a 2-column grid."""
     # Clear existing thumbnails
     for widget in thumbnails_inner_frame.winfo_children():
         widget.destroy()
@@ -573,20 +573,21 @@ def update_thumbnails_panel():
     # Keep a reference to the PhotoImage objects to prevent garbage collection
     thumb_canvas.thumb_references = []
 
+    num_cols = 2
     for i, (img, path) in enumerate(loaded_images_data):
-        thumb_frame = ttk.Frame(thumbnails_inner_frame, padding=5)
-        thumb_frame.pack(fill=tk.X, expand=True)
+        row = i // num_cols
+        col = i % num_cols
 
         img_copy = img.copy()
-        img_copy.thumbnail((80, 80), Image.Resampling.LANCZOS)
+        img_copy.thumbnail((50, 50), Image.Resampling.LANCZOS)
         photo_img = ImageTk.PhotoImage(img_copy)
         thumb_canvas.thumb_references.append(photo_img)
 
-        thumb_label = ttk.Label(thumb_frame, image=photo_img)
-        thumb_label.pack(side=tk.LEFT, padx=(0, 5))
+        thumb_label = ttk.Label(thumbnails_inner_frame, image=photo_img)
+        thumb_label.grid(row=row, column=col, padx=5, pady=5)
 
-        info_label = ttk.Label(thumb_frame, text=f"{i+1}. {os.path.basename(path)}", wraplength=100, justify=tk.LEFT)
-        info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # Bind mousewheel scroll to each thumbnail for robust scrolling
+        thumb_label.bind("<MouseWheel>", on_thumb_scroll)
 
 def update_pagination_controls():
     """Updates the state of the pagination buttons and page counter label."""
@@ -722,6 +723,10 @@ def choose_border_color():
         border_color_var.set(color_code[1])
         update_preview()
 
+def on_thumb_scroll(event):
+    """Handles mouse wheel scrolling for the thumbnail canvas."""
+    thumb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
 def set_initial_sash_positions(event):
     """Set the initial sash positions after the window is configured."""
     main_paned_window.sashpos(0, 120)
@@ -771,6 +776,10 @@ thumbnails_inner_frame.bind(
 
 thumb_canvas.create_window((0, 0), window=thumbnails_inner_frame, anchor="nw")
 thumb_canvas.configure(yscrollcommand=thumb_scrollbar.set)
+
+# Bind mouse wheel scrolling
+thumb_canvas.bind("<MouseWheel>", on_thumb_scroll)
+thumbnails_inner_frame.bind("<MouseWheel>", on_thumb_scroll)
 
 thumb_canvas.pack(side="left", fill="both", expand=True)
 thumb_scrollbar.pack(side="right", fill="y")
