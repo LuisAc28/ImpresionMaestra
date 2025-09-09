@@ -28,6 +28,7 @@ orientation_var = None # Will be initialized with UI
 face_cascade = None # To cache the loaded Haar Cascade classifier
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
+FIT_MODE_DEFORM = "deform"
 preview_pages = [] # To store the layout data for all pages
 current_preview_page_index = 0 # To track the current page in the preview
 
@@ -331,15 +332,20 @@ def draw_preview_page():
                 img_copy = img.copy()
                 if fit_mode_var.get() == FIT_MODE_FIT:
                     img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
-                    photo_img = ImageTk.PhotoImage(img_copy)
                     img_w, img_h = img_copy.size
                     px_centered = px + (pw - img_w) / 2
                     py_centered = py + (ph - img_h) / 2
-                else: # FIT_MODE_FILL
-                    img_copy = smart_crop(img_copy, int(pw), int(ph))
                     photo_img = ImageTk.PhotoImage(img_copy)
+                elif fit_mode_var.get() == FIT_MODE_DEFORM:
+                    img_copy = img_copy.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
                     px_centered = px
                     py_centered = py
+                    photo_img = ImageTk.PhotoImage(img_copy)
+                else: # FIT_MODE_FILL
+                    img_copy = smart_crop(img_copy, int(pw), int(ph))
+                    px_centered = px
+                    py_centered = py
+                    photo_img = ImageTk.PhotoImage(img_copy)
 
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px_centered, py_centered, image=photo_img, anchor="nw", tags="layout_item")
@@ -536,6 +542,9 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
             elif fit_mode == FIT_MODE_FILL:
                 cropped_img = smart_crop(img, int(cell_width), int(cell_height))
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
+            elif fit_mode == FIT_MODE_DEFORM:
+                deformed_img = img.resize((int(cell_width), int(cell_height)), Image.Resampling.LANCZOS)
+                c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height)
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
 
@@ -652,10 +661,12 @@ fit_mode_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 fit_mode_var = tk.StringVar(value=FIT_MODE_FIT)
 fit_mode_frame = ttk.Frame(options_frame)
 fit_mode_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar (con bordes)", variable=fit_mode_var, value=FIT_MODE_FIT, command=handle_fit_mode_change)
-fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar (recorte)", variable=fit_mode_var, value=FIT_MODE_FILL, command=handle_fit_mode_change)
+fit_radio_fit = ttk.Radiobutton(fit_mode_frame, text="Ajustar", variable=fit_mode_var, value=FIT_MODE_FIT, command=handle_fit_mode_change)
+fit_radio_fill = ttk.Radiobutton(fit_mode_frame, text="Rellenar", variable=fit_mode_var, value=FIT_MODE_FILL, command=handle_fit_mode_change)
+fit_radio_deform = ttk.Radiobutton(fit_mode_frame, text="Deformar", variable=fit_mode_var, value=FIT_MODE_DEFORM, command=handle_fit_mode_change)
 fit_radio_fit.pack(side=tk.LEFT, expand=True)
 fit_radio_fill.pack(side=tk.LEFT, expand=True)
+fit_radio_deform.pack(side=tk.LEFT, expand=True)
 
 # --- Border Options Frame (row 3, initially hidden) ---
 border_options_frame = ttk.Frame(options_frame)
