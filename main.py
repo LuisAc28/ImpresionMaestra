@@ -567,7 +567,7 @@ def show_next_page():
         update_pagination_controls()
 
 def update_thumbnails_panel():
-    """Clears and repopulates the thumbnail list in a 2-column grid."""
+    """Clears and repopulates the thumbnail list in a vertical list with rotation buttons."""
     # Clear existing thumbnails
     for widget in thumbnails_inner_frame.winfo_children():
         widget.destroy()
@@ -575,23 +575,30 @@ def update_thumbnails_panel():
     # Keep a reference to the PhotoImage objects to prevent garbage collection
     thumb_canvas.thumb_references = []
 
-    num_cols = 2
     for i, item in enumerate(loaded_images_data):
-        row = i // num_cols
-        col = i % num_cols
+        # Create a frame for each row
+        row_frame = ttk.Frame(thumbnails_inner_frame)
+        row_frame.pack(fill=tk.X, expand=True, padx=5, pady=2)
 
         img_copy = item['image'].copy()
-        img_copy.thumbnail((50, 50), Image.Resampling.LANCZOS)
+        img_copy.thumbnail((80, 80), Image.Resampling.LANCZOS)
         photo_img = ImageTk.PhotoImage(img_copy)
         thumb_canvas.thumb_references.append(photo_img)
 
-        thumb_label = ttk.Label(thumbnails_inner_frame, image=photo_img)
-        thumb_label.grid(row=row, column=col, padx=5, pady=5)
+        thumb_label = ttk.Label(row_frame, image=photo_img)
+        thumb_label.pack(side=tk.LEFT, padx=(0, 5))
 
-        # Bind events
+        # Add rotation button
+        rotate_button = ttk.Button(row_frame, text="🔄", command=lambda index=i: on_thumbnail_click(index))
+        rotate_button.pack(side=tk.LEFT, padx=5)
+
+        # Bind events to the thumbnail label
         thumb_label.bind("<MouseWheel>", on_thumb_scroll)
-        thumb_label.bind("<Button-1>", lambda event, index=i: on_thumbnail_click(index))
         thumb_label.bind("<Double-Button-1>", lambda event, index=i: on_thumbnail_double_click(index))
+
+        # Also bind mousewheel to the frame and button for better UX
+        row_frame.bind("<MouseWheel>", on_thumb_scroll)
+        rotate_button.bind("<MouseWheel>", on_thumb_scroll)
 
 def update_pagination_controls():
     """Updates the state of the pagination buttons and page counter label."""
