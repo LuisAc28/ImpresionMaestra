@@ -260,11 +260,22 @@ def calculate_mosaic_layout(images_data_list):
 
     scale_factor = mosaic_scale_var.get() / 100.0
 
-    rects_data = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
-                  for img, path in images_data_list]
+    # Create initial scaled rectangles
+    initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
+                     for img, path in images_data_list]
+
+    # Downscale any images that are now larger than the page itself
+    final_rects = []
+    for r in initial_rects:
+        w, h = r['width'], r['height']
+        if w > bin_width or h > bin_height:
+            ratio = min(bin_width / w if w > 0 else 1, bin_height / h if h > 0 else 1)
+            w *= ratio
+            h *= ratio
+        final_rects.append({'width': w, 'height': h, 'rid': r['rid']})
 
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
-    for r in rects_data:
+    for r in final_rects:
         packer.add_rect(r['width'], r['height'], rid=r['rid'])
 
     packer.add_bin(bin_width, bin_height, count=float('inf'))
@@ -273,7 +284,7 @@ def calculate_mosaic_layout(images_data_list):
     # Convert packer iterable to a concrete list of pages to avoid consuming it.
     list_of_pages = [bin for bin in packer if bin]
 
-    all_rids = {r['rid'][1] for r in rects_data}
+    all_rids = {r['rid'][1] for r in final_rects}
     # Calculate packed items from the new list, not the packer object.
     packed_rids = {rect.rid[1] for abin in list_of_pages for rect in abin}
     unpacked_paths = list(all_rids - packed_rids)
