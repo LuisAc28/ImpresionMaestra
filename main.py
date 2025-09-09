@@ -910,8 +910,8 @@ load_resources()
 
 # Set initial sash positions for the PanedWindow
 root.update_idletasks()
-main_paned_window.sash_place(0, 120)
-main_paned_window.sash_place(1, 400) # 120px for first pane + 280px for second
+main_paned_window.sash_place(0, 120, 0)
+main_paned_window.sash_place(1, 400, 0) # 120px for first pane + 280px for second
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
