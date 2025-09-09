@@ -343,8 +343,13 @@ def draw_preview_page():
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
             except Exception as e:
+                print(f"Error drawing mosaic preview for rect: {rect.rid}. Exception: {e}")
+                messagebox.showerror("Error de Previsualización", f"Ocurrió un error al dibujar una de las imágenes del mosaico.\n\nError técnico:\n{e}")
+                # Draw the error box as a fallback
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
-                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(rect.rid)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
+                # Try to get path for error message, but handle if rid is not a tuple
+                error_path = rect.rid[1] if isinstance(rect.rid, tuple) and len(rect.rid) > 1 else "Desconocido"
+                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(error_path)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
     else: # Grid layouts
         rows, cols = get_grid_dimensions()
         if rows * cols == 0: return
