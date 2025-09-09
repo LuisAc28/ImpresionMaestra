@@ -273,18 +273,15 @@ def calculate_mosaic_layout(images_data_list):
         can_fit_rotated = (h <= bin_width and w <= bin_height)
 
         if not can_fit_as_is and not can_fit_rotated:
-            # If it can't fit in any orientation, it must be downscaled.
-            # Calculate the ratio that would make it fit as-is, and the ratio that would make it fit rotated.
-            # We want the smallest downscale, so we take the larger of the two possible ratios.
             ratio_as_is = min(bin_width / w if w > 0 else 0, bin_height / h if h > 0 else 0)
             ratio_rotated = min(bin_width / h if h > 0 else 0, bin_height / w if w > 0 else 0)
-
             downscale_ratio = max(ratio_as_is, ratio_rotated)
-
             w *= downscale_ratio
             h *= downscale_ratio
 
-        final_rects.append({'width': w, 'height': h, 'rid': r['rid']})
+        # The rid now contains the original image and its pre-packing dimensions
+        rid_data = {'image': r['rid'][0], 'path': r['rid'][1], 'original_w': w, 'original_h': h}
+        final_rects.append({'width': w, 'height': h, 'rid': rid_data})
 
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
     for r in final_rects:
@@ -296,9 +293,9 @@ def calculate_mosaic_layout(images_data_list):
     # Convert packer iterable to a concrete list of pages to avoid consuming it.
     list_of_pages = [bin for bin in packer if bin]
 
-    all_rids = {r['rid'][1] for r in final_rects}
+    all_rids = {r['rid']['path'] for r in final_rects}
     # Calculate packed items from the new list, not the packer object.
-    packed_rids = {rect.rid[1] for abin in list_of_pages for rect in abin}
+    packed_rids = {rect.rid['path'] for abin in list_of_pages for rect in abin}
     unpacked_paths = list(all_rids - packed_rids)
 
     return list_of_pages, unpacked_paths
@@ -335,21 +332,25 @@ def draw_preview_page():
             pw = rect.width * scale
             ph = rect.height * scale
             try:
-                img, path = rect.rid
-                if rect.rotated:
-                    img = img.rotate(90, expand=True)
-                resized_img = img.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
+                img = rect.rid['image']
+                original_w = rect.rid['original_w']
+
+                # Infer rotation by comparing final width with original scaled width
+                if rect.width == original_w:
+                    # Not rotated (or scaled down, but same orientation)
+                    img_to_draw = img
+                else:
+                    # Rotated
+                    img_to_draw = img.rotate(90, expand=True)
+
+                resized_img = img_to_draw.resize((int(pw), int(ph)), Image.Resampling.LANCZOS)
                 photo_img = ImageTk.PhotoImage(resized_img)
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
             except Exception as e:
                 print(f"Error drawing mosaic preview for rect: {rect.rid}. Exception: {e}")
-                messagebox.showerror("Error de Previsualización", f"Ocurrió un error al dibujar una de las imágenes del mosaico.\n\nError técnico:\n{e}")
-                # Draw the error box as a fallback
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
-                # Try to get path for error message, but handle if rid is not a tuple
-                error_path = rect.rid[1] if isinstance(rect.rid, tuple) and len(rect.rid) > 1 else "Desconocido"
-                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(error_path)}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
+                preview_canvas.create_text(px + 4, py + 4, text=f"Error:\n{os.path.basename(rect.rid['path'])}", anchor="nw", font=("Arial", 7), fill="red", tags="layout_item")
     else: # Grid layouts
         rows, cols = get_grid_dimensions()
         if rows * cols == 0: return
@@ -536,12 +537,18 @@ def draw_mosaic_pdf(pages, save_path):
     for i, page in enumerate(pages):
         if i > 0: c.showPage()
         for rect in page:
-            img, path = rect.rid
-            if rect.rotated:
-                img = img.rotate(90, expand=True)
+            img = rect.rid['image']
+            original_w = rect.rid['original_w']
+
+            # Infer rotation
+            if rect.width == original_w:
+                img_to_draw = img
+            else:
+                img_to_draw = img.rotate(90, expand=True)
+
             x = margin + rect.x
             y = margin + rect.y
-            c.drawImage(ImageReader(img), x, y, width=rect.width, height=rect.height)
+            c.drawImage(ImageReader(img_to_draw), x, y, width=rect.width, height=rect.height)
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
