@@ -64,8 +64,13 @@ def _handle_file_selection(replace_current: bool):
                     # Convert to RGBA to handle transparency consistently
                     img = img.convert("RGBA")
                     trimmed_img = trim_whitespace(img)
-                    # Store as a dictionary to hold rotation info
-                    newly_processed_images.append({'image': trimmed_img, 'path': path, 'rotation': 0})
+                    # Store as a dictionary to hold rotation and custom crop info
+                    newly_processed_images.append({
+                        'image': trimmed_img,
+                        'path': path,
+                        'rotation': 0,
+                        'custom_crop_box': None
+                    })
             except Exception as e:
                 print(f"Error processing image {path}: {e}")
                 # Optionally show a message to the user
@@ -458,7 +463,10 @@ def draw_preview_page():
                     py_centered = py
                     photo_img = ImageTk.PhotoImage(img_copy)
                 else: # FIT_MODE_FILL
-                    box = calculate_smart_crop_box(img_copy, pw / ph)
+                    if item.get('custom_crop_box'):
+                        box = item['custom_crop_box']
+                    else:
+                        box = calculate_smart_crop_box(img_copy, pw / ph)
                     img_copy = apply_crop_and_resize(img_copy, box, int(pw), int(ph))
                     px_centered = px
                     py_centered = py
@@ -710,7 +718,10 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h)
 
             elif fit_mode == FIT_MODE_FILL:
-                box = calculate_smart_crop_box(img, cell_width / cell_height)
+                if item.get('custom_crop_box'):
+                    box = item['custom_crop_box']
+                else:
+                    box = calculate_smart_crop_box(img, cell_width / cell_height)
                 cropped_img = apply_crop_and_resize(img, box, int(cell_width), int(cell_height))
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
             elif fit_mode == FIT_MODE_DEFORM:
@@ -741,10 +752,11 @@ def choose_border_color():
         update_preview()
 
 class CropEditor:
-    def __init__(self, parent, image_index):
+    def __init__(self, parent, image_index, on_save_callback=None):
         self.parent = parent
         self.image_item = loaded_images_data[image_index]
         self.original_image = self.image_item['image'].copy()
+        self.on_save_callback = on_save_callback
 
         # State variables
         self.scale = 1.0
@@ -774,7 +786,7 @@ class CropEditor:
 
         cancel_button = ttk.Button(button_frame, text="Cancelar", command=self.window.destroy)
         cancel_button.pack(side=tk.RIGHT, padx=(5, 0))
-        save_button = ttk.Button(button_frame, text="Guardar y Cerrar")
+        save_button = ttk.Button(button_frame, text="Guardar y Cerrar", command=self.save_and_close)
         save_button.pack(side=tk.RIGHT)
 
         # Bindings
@@ -872,10 +884,30 @@ class CropEditor:
         self.offset_y = mouse_y - (image_coord_y * self.scale)
         self.redraw()
 
+    def save_and_close(self):
+        """Calculates the final crop box and saves it."""
+        # Get canvas crop box coordinates
+        c_box_x1, c_box_y1, c_box_x2, c_box_y2 = self.canvas_crop_box
+
+        # Convert canvas coordinates to original image coordinates
+        orig_x1 = (c_box_x1 - self.offset_x) / self.scale
+        orig_y1 = (c_box_y1 - self.offset_y) / self.scale
+        orig_x2 = (c_box_x2 - self.offset_x) / self.scale
+        orig_y2 = (c_box_y2 - self.offset_y) / self.scale
+
+        final_box = (orig_x1, orig_y1, orig_x2, orig_y2)
+
+        self.image_item['custom_crop_box'] = final_box
+
+        if self.on_save_callback:
+            self.on_save_callback()
+
+        self.window.destroy()
+
 # The function that gets called by the double-click event
 def open_crop_editor(index):
     """Creates an instance of the CropEditor."""
-    editor = CropEditor(root, index)
+    editor = CropEditor(root, index, on_save_callback=update_preview)
 
 def on_thumbnail_double_click(index):
     """Handles double-click on a thumbnail to open the crop editor."""
