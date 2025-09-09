@@ -260,7 +260,6 @@ def calculate_mosaic_layout(images_data_list):
 
     scale_factor = mosaic_scale_var.get() / 100.0
 
-    # Scale image dimensions before packing
     rects_data = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
                   for img, path in images_data_list]
 
@@ -271,10 +270,15 @@ def calculate_mosaic_layout(images_data_list):
     packer.add_bin(bin_width, bin_height, count=float('inf'))
     packer.pack()
 
-    all_rids = {r['rid'][1] for r in rects_data} # Get original paths
-    packed_rids = {rect.rid[1] for abin in packer for rect in abin} # Get original paths
+    # Convert packer iterable to a concrete list of pages to avoid consuming it.
+    list_of_pages = [bin for bin in packer if bin]
+
+    all_rids = {r['rid'][1] for r in rects_data}
+    # Calculate packed items from the new list, not the packer object.
+    packed_rids = {rect.rid[1] for abin in list_of_pages for rect in abin}
     unpacked_paths = list(all_rids - packed_rids)
-    return packer, unpacked_paths
+
+    return list_of_pages, unpacked_paths
 
 def calculate_grid_layout(images_data_list):
     rows, cols = get_grid_dimensions()
@@ -416,8 +420,13 @@ def update_preview():
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
             try:
-                packer, _ = calculate_mosaic_layout(loaded_images_data)
-                preview_pages = [bin for bin in packer if bin]
+                # The function now returns a list of pages directly
+                preview_pages, unpacked_paths = calculate_mosaic_layout(loaded_images_data)
+                if unpacked_paths:
+                    msg = ("Las siguientes imágenes son demasiado grandes para caber en la página "
+                           "con el tamaño de mosaico seleccionado y serán omitidas:\n\n" +
+                           "\n".join(f"- {os.path.basename(p)}" for p in unpacked_paths))
+                    messagebox.showwarning("Imágenes Grandes Omitidas", msg)
             except Exception as e:
                 messagebox.showerror("Error de Cálculo", f"No se pudo calcular el diseño de mosaico:\n{e}")
                 preview_pages = []
@@ -474,14 +483,14 @@ def generate_pdf():
     try:
         layout_choice = layout_var.get()
         if layout_choice == "Mosaico (Ahorro de papel)":
-            packed_pages, unpacked = calculate_mosaic_layout(loaded_images_data)
-            if unpacked:
-                msg = "Imágenes omitidas por ser demasiado grandes:\n\n" + "\n".join(f"- {os.path.basename(p)}" for p in unpacked)
+            list_of_pages, unpacked_paths = calculate_mosaic_layout(loaded_images_data)
+            if unpacked_paths:
+                msg = "Imágenes omitidas por ser demasiado grandes:\n\n" + "\n".join(f"- {os.path.basename(p)}" for p in unpacked_paths)
                 messagebox.showwarning("Imágenes Grandes Omitidas", msg)
-            if not any(packed_pages):
+            if not list_of_pages:
                 messagebox.showerror("Error", "No se pudo empaquetar ninguna imagen.")
                 return
-            draw_mosaic_pdf(packed_pages, save_path)
+            draw_mosaic_pdf(list_of_pages, save_path)
         else: # Grid modes
             fit_mode = fit_mode_var.get()
             if fit_mode == FIT_MODE_FILL and get_face_cascade() is None:
@@ -493,12 +502,12 @@ def generate_pdf():
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error inesperado:\n{e}")
 
-def draw_mosaic_pdf(packer, save_path):
+def draw_mosaic_pdf(pages, save_path):
     margin = 1 * cm
     c = canvas.Canvas(save_path, pagesize=get_page_size())
-    for i, abin in enumerate(packer):
+    for i, page in enumerate(pages):
         if i > 0: c.showPage()
-        for rect in abin:
+        for rect in page:
             img, path = rect.rid
             if rect.rotated:
                 img = img.rotate(90, expand=True)
