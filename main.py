@@ -252,70 +252,84 @@ def handle_layout_change(event=None):
 
     update_preview()
 
-def calculate_mosaic_layout(images_data_list):
+def _run_mosaic_packing(images_data_list, scale_percentage):
+    """
+    Internal helper to run the mosaic packing algorithm with a given scale.
+    Returns the list of pages and a list of unpacked image paths.
+    """
+    if not images_data_list:
+        return [], []
+
     margin = 1 * cm
     page_width, page_height = get_page_size()
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
 
-    # --- New Uniform Scaling Logic ---
-    # 1. Find the largest dimension among all images
-    if not images_data_list:
-        return [], []
     max_dim = 0
     for img, path in images_data_list:
         max_dim = max(max_dim, img.width, img.height)
 
-    # 2. Calculate target size based on slider and page width
-    slider_percentage = mosaic_scale_var.get()
-    target_size = bin_width * (slider_percentage / 100.0)
-
-    # 3. Calculate a single, uniform scale factor
+    target_size = bin_width * (scale_percentage / 100.0)
     scale_factor = target_size / max_dim if max_dim > 0 else 0
 
-    # 4. Apply the uniform scale factor to all images
     initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
                      for img, path in images_data_list]
 
-    # Downscale any images that are now larger than the page, accounting for rotation
     final_rects = []
     for r in initial_rects:
         w, h = r['width'], r['height']
-
         can_fit_as_is = (w <= bin_width and h <= bin_height)
         can_fit_rotated = (h <= bin_width and w <= bin_height)
-
         if not can_fit_as_is and not can_fit_rotated:
             ratio_as_is = min(bin_width / w if w > 0 else 0, bin_height / h if h > 0 else 0)
             ratio_rotated = min(bin_width / h if h > 0 else 0, bin_height / w if w > 0 else 0)
             downscale_ratio = max(ratio_as_is, ratio_rotated)
             w *= downscale_ratio
             h *= downscale_ratio
-
-        # The rid now contains the original image and its pre-packing dimensions
         rid_data = {'image': r['rid'][0], 'path': r['rid'][1], 'original_w': w, 'original_h': h}
         final_rects.append({'width': w, 'height': h, 'rid': rid_data})
 
-    packer = rectpack.newPacker(
-        pack_algo=rectpack.MaxRectsBl,
-        sort_algo=rectpack.SORT_AREA,
-        rotation=True
-    )
+    packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
     for r in final_rects:
         packer.add_rect(r['width'], r['height'], rid=r['rid'])
-
     packer.add_bin(bin_width, bin_height, count=float('inf'))
     packer.pack()
 
-    # Convert packer iterable to a concrete list of pages to avoid consuming it.
     list_of_pages = [bin for bin in packer if bin]
-
     all_rids = {r['rid']['path'] for r in final_rects}
-    # Calculate packed items from the new list, not the packer object.
     packed_rids = {rect.rid['path'] for abin in list_of_pages for rect in abin}
     unpacked_paths = list(all_rids - packed_rids)
 
     return list_of_pages, unpacked_paths
+
+def calculate_mosaic_layout(images_data_list):
+    """
+    Wrapper that gets the current scale from the UI and runs the packing algorithm.
+    """
+    scale_percentage = mosaic_scale_var.get()
+    return _run_mosaic_packing(images_data_list, scale_percentage)
+
+def auto_fit_mosaic():
+    """
+    Finds the optimal scale to fit all images on one page and updates the UI.
+    """
+    if not loaded_images_data:
+        messagebox.showinfo("Información", "No hay imágenes cargadas para ajustar.")
+        return
+
+    # Search for the best fit by trying scales from largest to smallest
+    for p in range(200, 24, -5): # Iterate from 200% down to 25% in steps of 5
+        pages, unpacked = _run_mosaic_packing(loaded_images_data, p)
+        if len(pages) <= 1 and not unpacked:
+            # Found the largest scale that fits on one page
+            mosaic_scale_var.set(p)
+            update_preview()
+            return
+
+    # If no scale worked (e.g., one image is too big even at min scale)
+    mosaic_scale_var.set(25) # Default to minimum
+    update_preview()
+    messagebox.showinfo("Ajuste Automático", "No se pudo encajar todas las imágenes en una sola página. Se ha usado el tamaño mínimo posible.")
 
 def calculate_grid_layout(images_data_list):
     rows, cols = get_grid_dimensions()
@@ -344,9 +358,9 @@ def draw_preview_page():
 
     if layout_choice == "Mosaico (Ahorro de papel)":
         for rect in page_data:
-            # With a top-left packing algorithm, the y-coordinate calculation is direct.
+            # Reverted to bottom-left packing, so Y-inversion is needed again.
             px = x0 + (margin_pt + rect.x) * scale
-            py = y0 + (margin_pt + rect.y) * scale
+            py = y0 + paper_h_px - (margin_pt + rect.y + rect.height) * scale
             pw = rect.width * scale
             ph = rect.height * scale
             try:
@@ -737,6 +751,8 @@ mosaic_scale_label.pack(side=tk.LEFT, padx=(5, 5))
 mosaic_scale_var = tk.DoubleVar(value=100)
 mosaic_scale_slider = ttk.Scale(mosaic_options_frame, from_=25, to=200, variable=mosaic_scale_var, orient=tk.HORIZONTAL, command=lambda e: update_preview())
 mosaic_scale_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+auto_fit_button = ttk.Button(mosaic_options_frame, text="Ajuste Automático", command=auto_fit_mosaic)
+auto_fit_button.pack(side=tk.LEFT, padx=(5, 0))
 mosaic_options_frame.grid_remove()
 
 # --- Fit Mode (row 3) ---
