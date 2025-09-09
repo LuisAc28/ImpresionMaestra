@@ -154,67 +154,60 @@ def trim_whitespace(image):
     # Crop the original Pillow image
     return image.crop((x_min, y_min, x_max + 1, y_max + 1))
 
-def smart_crop(img, target_w, target_h):
+def calculate_smart_crop_box(img, target_aspect_ratio):
     """
-    Crops and resizes an image to fill the target dimensions,
+    Calculates the ideal crop box for an image to fit a target aspect ratio,
     centering on detected faces or the geometric center.
+    Returns a (left, top, right, bottom) tuple for the crop box.
     """
-    face_cascade = get_face_cascade()
-    if face_cascade is None:
-        return ImageOps.fit(img, (target_w, target_h), method=Image.Resampling.LANCZOS)
-
-    # --- Optimization: Detect on a smaller image ---
     original_w, original_h = img.size
-    detection_width = 400  # pixels
+    center_x, center_y = original_w / 2, original_h / 2 # Default center
 
-    if original_w > detection_width:
-        scale_ratio = original_w / detection_width
-        detection_height = int(original_h / scale_ratio)
-        detect_img = img.resize((detection_width, detection_height), Image.Resampling.LANCZOS)
-    else:
-        scale_ratio = 1.0
-        detect_img = img
+    face_cascade = get_face_cascade()
+    if face_cascade is not None:
+        # --- Face Detection Logic ---
+        detection_width = 400
+        if original_w > detection_width:
+            scale_ratio = original_w / detection_width
+            detection_height = int(original_h / scale_ratio)
+            detect_img = img.resize((detection_width, detection_height), Image.Resampling.LANCZOS)
+        else:
+            scale_ratio = 1.0
+            detect_img = img
 
-    img_np = np.array(detect_img.convert('RGB'))
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        img_np = np.array(detect_img.convert('RGB'))
+        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
-    if len(faces) > 0:
-        # Scale face coordinates back to the original image size
-        scaled_faces = [(int(x * scale_ratio), int(y * scale_ratio), int(w * scale_ratio), int(h * scale_ratio)) for x, y, w, h in faces]
-        x_coords = [x + w / 2 for x, y, w, h in scaled_faces]
-        y_coords = [y + h / 2 for x, y, w, h in scaled_faces]
-        center_x = sum(x_coords) / len(x_coords)
-        center_y = sum(y_coords) / len(y_coords)
-    else:
-        center_x = original_w / 2
-        center_y = original_h / 2
+        if len(faces) > 0:
+            scaled_faces = [(int(f[0] * scale_ratio), int(f[1] * scale_ratio), int(f[2] * scale_ratio), int(f[3] * scale_ratio)) for f in faces]
+            center_x = sum(x + w / 2 for x, y, w, h in scaled_faces) / len(scaled_faces)
+            center_y = sum(y + h / 2 for x, y, w, h in scaled_faces) / len(scaled_faces)
 
-    # 2. Re-implement ImageOps.fit logic with the smart center
-    source_w, source_h = img.size
-    target_ar = target_w / target_h
-    source_ar = source_w / source_h
+    # --- Crop Box Calculation ---
+    source_ar = original_w / original_h
 
-    if source_ar > target_ar: # Source is wider than target, crop sides
-        crop_w = source_h * target_ar
-        crop_h = source_h
-        left = max(0, center_x - crop_w / 2)
+    if source_ar > target_aspect_ratio: # Source is wider than target -> crop sides
+        crop_h = float(original_h)
+        crop_w = crop_h * target_aspect_ratio
         top = 0
-        right = min(source_w, left + crop_w)
-        if right == source_w: # Adjust left if we hit the right edge
-            left = source_w - crop_w
-        bottom = crop_h
-    else: # Source is taller than target, crop top/bottom
-        crop_w = source_w
-        crop_h = source_w / target_ar
+        left = center_x - crop_w / 2
+        # Ensure the box is within bounds
+        if left < 0: left = 0
+        if left + crop_w > original_w: left = original_w - crop_w
+    else: # Source is taller than target -> crop top/bottom
+        crop_w = float(original_w)
+        crop_h = crop_w / target_aspect_ratio
         left = 0
-        top = max(0, center_y - crop_h / 2)
-        right = crop_w
-        bottom = min(source_h, top + crop_h)
-        if bottom == source_h: # Adjust top if we hit the bottom edge
-            top = source_h - crop_h
+        top = center_y - crop_h / 2
+        # Ensure the box is within bounds
+        if top < 0: top = 0
+        if top + crop_h > original_h: top = original_h - crop_h
 
-    box = (left, top, right, bottom)
+    return (left, top, left + crop_w, top + crop_h)
+
+def apply_crop_and_resize(img, box, target_w, target_h):
+    """Crops an image using the given box and resizes it to the target dimensions."""
     cropped_img = img.crop(box)
     return cropped_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
@@ -465,7 +458,8 @@ def draw_preview_page():
                     py_centered = py
                     photo_img = ImageTk.PhotoImage(img_copy)
                 else: # FIT_MODE_FILL
-                    img_copy = smart_crop(img_copy, int(pw), int(ph))
+                    box = calculate_smart_crop_box(img_copy, pw / ph)
+                    img_copy = apply_crop_and_resize(img_copy, box, int(pw), int(ph))
                     px_centered = px
                     py_centered = py
                     photo_img = ImageTk.PhotoImage(img_copy)
@@ -597,6 +591,7 @@ def update_thumbnails_panel():
         # Bind events
         thumb_label.bind("<MouseWheel>", on_thumb_scroll)
         thumb_label.bind("<Button-1>", lambda event, index=i: on_thumbnail_click(index))
+        thumb_label.bind("<Double-Button-1>", lambda event, index=i: on_thumbnail_double_click(index))
 
 def update_pagination_controls():
     """Updates the state of the pagination buttons and page counter label."""
@@ -708,7 +703,8 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h)
 
             elif fit_mode == FIT_MODE_FILL:
-                cropped_img = smart_crop(img, int(cell_width), int(cell_height))
+                box = calculate_smart_crop_box(img, cell_width / cell_height)
+                cropped_img = apply_crop_and_resize(img, box, int(cell_width), int(cell_height))
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
             elif fit_mode == FIT_MODE_DEFORM:
                 deformed_img = img.resize((int(cell_width), int(cell_height)), Image.Resampling.LANCZOS)
@@ -736,6 +732,82 @@ def choose_border_color():
     if color_code and color_code[1]:
         border_color_var.set(color_code[1])
         update_preview()
+
+def open_crop_editor(index):
+    """Opens a new window to manually edit the crop for an image."""
+    image_item = loaded_images_data[index]
+    original_image = image_item['image'].copy()
+
+    # Calculate target aspect ratio from the main grid settings
+    page_w, page_h = get_page_size()
+    rows, cols = get_grid_dimensions()
+    margin = 1 * cm
+    cell_w = (page_w - 2 * margin) / cols
+    cell_h = (page_h - 2 * margin) / rows
+    target_aspect_ratio = cell_w / cell_h
+
+    # Get the initial "smart" crop box
+    crop_box = calculate_smart_crop_box(original_image, target_aspect_ratio)
+
+    editor_window = tk.Toplevel(root)
+    editor_window.title("Editar Recorte Manual")
+    editor_window.geometry("800x600")
+    editor_window.transient(root)
+    editor_window.grab_set()
+
+    main_frame = ttk.Frame(editor_window)
+    main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    canvas = tk.Canvas(main_frame, bg="darkgrey")
+    canvas.pack(fill=tk.BOTH, expand=True)
+
+    button_frame = ttk.Frame(main_frame)
+    button_frame.pack(fill=tk.X, pady=(5, 0))
+
+    cancel_button = ttk.Button(button_frame, text="Cancelar", command=editor_window.destroy)
+    cancel_button.pack(side=tk.RIGHT, padx=(5, 0))
+    save_button = ttk.Button(button_frame, text="Guardar y Cerrar")
+    save_button.pack(side=tk.RIGHT)
+
+    def redraw_canvas(event=None):
+        canvas_w = canvas.winfo_width()
+        canvas_h = canvas.winfo_height()
+        if canvas_w <= 1 or canvas_h <= 1: return
+        canvas.delete("all")
+
+        img_w, img_h = original_image.size
+        scale = min(canvas_w / img_w, canvas_h / img_h)
+        scaled_w, scaled_h = int(img_w * scale), int(img_h * scale)
+
+        # Keep a reference to the PhotoImage to prevent garbage collection
+        editor_window.photo_img = ImageTk.PhotoImage(original_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS))
+
+        x_offset = (canvas_w - scaled_w) / 2
+        y_offset = (canvas_h - scaled_h) / 2
+        canvas.create_image(x_offset, y_offset, image=editor_window.photo_img, anchor="nw")
+
+        crop_x1 = x_offset + (crop_box[0] * scale)
+        crop_y1 = y_offset + (crop_box[1] * scale)
+        crop_x2 = x_offset + (crop_box[2] * scale)
+        crop_y2 = y_offset + (crop_box[3] * scale)
+
+        # Create a semi-transparent overlay using stippled rectangles
+        canvas.create_rectangle(0, 0, canvas_w, crop_y1, fill="black", stipple="gray50", outline="")
+        canvas.create_rectangle(0, crop_y2, canvas_w, canvas_h, fill="black", stipple="gray50", outline="")
+        canvas.create_rectangle(0, crop_y1, crop_x1, crop_y2, fill="black", stipple="gray50", outline="")
+        canvas.create_rectangle(crop_x2, crop_y1, canvas_w, crop_y2, fill="black", stipple="gray50", outline="")
+        # Draw the crop box outline
+        canvas.create_rectangle(crop_x1, crop_y1, crop_x2, crop_y2, outline="white", width=2, dash=(4, 4))
+
+    # Use 'after' to ensure the canvas has been drawn once before getting its size
+    canvas.after(50, redraw_canvas)
+
+    editor_window.wait_window()
+
+def on_thumbnail_double_click(index):
+    """Handles double-click on a thumbnail to open the crop editor."""
+    if fit_mode_var.get() == FIT_MODE_FILL:
+        open_crop_editor(index)
 
 def on_thumbnail_click(index):
     """Handles clicks on a thumbnail to rotate the image."""
