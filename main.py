@@ -733,16 +733,16 @@ main_paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
 main_paned_window.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
 # Left Panel: Thumbnails
-thumbnails_panel = ttk.LabelFrame(main_paned_window, text="Imágenes Cargadas", width=200)
-main_paned_window.add(thumbnails_panel, weight=1)
+thumbnails_panel = ttk.LabelFrame(main_paned_window, text="Imágenes Cargadas")
+main_paned_window.add(thumbnails_panel, weight=0)
 
 # Center Panel: Controls
-controls_panel = ttk.Frame(main_paned_window, width=320)
-main_paned_window.add(controls_panel, weight=1)
+controls_panel = ttk.Frame(main_paned_window)
+main_paned_window.add(controls_panel, weight=0)
 
 # Right Panel: Preview
 preview_panel = ttk.LabelFrame(main_paned_window, text="Previsualización del Diseño")
-main_paned_window.add(preview_panel, weight=3)
+main_paned_window.add(preview_panel, weight=1)
 
 # --- Children of the panels ---
 # Children of controls_panel (no change, they are already linked to this variable)
@@ -907,6 +907,11 @@ handle_layout_change()
 
 # Load resources at startup
 load_resources()
+
+# Set initial sash positions for the PanedWindow
+root.update_idletasks()
+main_paned_window.sash_place(0, 120)
+main_paned_window.sash_place(1, 400) # 120px for first pane + 280px for second
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
