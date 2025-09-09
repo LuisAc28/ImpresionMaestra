@@ -740,76 +740,142 @@ def choose_border_color():
         border_color_var.set(color_code[1])
         update_preview()
 
-def open_crop_editor(index):
-    """Opens a new window to manually edit the crop for an image."""
-    image_item = loaded_images_data[index]
-    original_image = image_item['image'].copy()
+class CropEditor:
+    def __init__(self, parent, image_index):
+        self.parent = parent
+        self.image_item = loaded_images_data[image_index]
+        self.original_image = self.image_item['image'].copy()
 
-    # Calculate target aspect ratio from the main grid settings
-    page_w, page_h = get_page_size()
-    rows, cols = get_grid_dimensions()
-    margin = 1 * cm
-    cell_w = (page_w - 2 * margin) / cols
-    cell_h = (page_h - 2 * margin) / rows
-    target_aspect_ratio = cell_w / cell_h
+        # State variables
+        self.scale = 1.0
+        self.offset_x = 0
+        self.offset_y = 0
+        self.start_pan_x = 0
+        self.start_pan_y = 0
+        self.start_offset_x = 0
+        self.start_offset_y = 0
 
-    # Get the initial "smart" crop box
-    crop_box = calculate_smart_crop_box(original_image, target_aspect_ratio)
+        # Window setup
+        self.window = tk.Toplevel(parent)
+        self.window.title("Editar Recorte Manual")
+        self.window.geometry("800x600")
+        self.window.transient(parent)
+        self.window.grab_set()
 
-    editor_window = tk.Toplevel(root)
-    editor_window.title("Editar Recorte Manual")
-    editor_window.geometry("800x600")
-    editor_window.transient(root)
-    editor_window.grab_set()
+        # UI Elements
+        main_frame = ttk.Frame(self.window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    main_frame = ttk.Frame(editor_window)
-    main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.canvas = tk.Canvas(main_frame, bg="darkgrey")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
-    canvas = tk.Canvas(main_frame, bg="darkgrey")
-    canvas.pack(fill=tk.BOTH, expand=True)
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(5, 0))
 
-    button_frame = ttk.Frame(main_frame)
-    button_frame.pack(fill=tk.X, pady=(5, 0))
+        cancel_button = ttk.Button(button_frame, text="Cancelar", command=self.window.destroy)
+        cancel_button.pack(side=tk.RIGHT, padx=(5, 0))
+        save_button = ttk.Button(button_frame, text="Guardar y Cerrar")
+        save_button.pack(side=tk.RIGHT)
 
-    cancel_button = ttk.Button(button_frame, text="Cancelar", command=editor_window.destroy)
-    cancel_button.pack(side=tk.RIGHT, padx=(5, 0))
-    save_button = ttk.Button(button_frame, text="Guardar y Cerrar")
-    save_button.pack(side=tk.RIGHT)
+        # Bindings
+        self.canvas.bind("<ButtonPress-1>", self.on_pan_press)
+        self.canvas.bind("<B1-Motion>", self.on_pan_drag)
+        self.canvas.bind("<MouseWheel>", self.on_zoom)
 
-    def redraw_canvas(event=None):
-        canvas_w = canvas.winfo_width()
-        canvas_h = canvas.winfo_height()
+        # Initial draw
+        self.canvas.after(50, self.initial_draw)
+
+        self.window.wait_window()
+
+    def initial_draw(self):
+        """Calculates the initial view to match the smart crop and does the first draw."""
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
         if canvas_w <= 1 or canvas_h <= 1: return
-        canvas.delete("all")
 
-        img_w, img_h = original_image.size
-        scale = min(canvas_w / img_w, canvas_h / img_h)
-        scaled_w, scaled_h = int(img_w * scale), int(img_h * scale)
+        # 1. Calculate the fixed crop box on the canvas
+        target_aspect_ratio = self._calculate_target_aspect_ratio()
+        box_w = min(canvas_w * 0.9, canvas_h * 0.9 * target_aspect_ratio)
+        box_h = box_w / target_aspect_ratio
+        if box_h > canvas_h * 0.9:
+            box_h = canvas_h * 0.9
+            box_w = box_h * target_aspect_ratio
+        self.canvas_crop_box = ((canvas_w - box_w) / 2, (canvas_h - box_h) / 2, (canvas_w + box_w) / 2, (canvas_h + box_h) / 2)
 
-        # Keep a reference to the PhotoImage to prevent garbage collection
-        editor_window.photo_img = ImageTk.PhotoImage(original_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS))
+        # 2. Get the smart crop box on the original image
+        image_crop_box = calculate_smart_crop_box(self.original_image, target_aspect_ratio)
 
-        x_offset = (canvas_w - scaled_w) / 2
-        y_offset = (canvas_h - scaled_h) / 2
-        canvas.create_image(x_offset, y_offset, image=editor_window.photo_img, anchor="nw")
+        # 3. Calculate initial scale and offset to fit image_crop_box into canvas_crop_box
+        img_crop_w = image_crop_box[2] - image_crop_box[0]
+        self.scale = box_w / img_crop_w
 
-        crop_x1 = x_offset + (crop_box[0] * scale)
-        crop_y1 = y_offset + (crop_box[1] * scale)
-        crop_x2 = x_offset + (crop_box[2] * scale)
-        crop_y2 = y_offset + (crop_box[3] * scale)
+        self.offset_x = self.canvas_crop_box[0] - (image_crop_box[0] * self.scale)
+        self.offset_y = self.canvas_crop_box[1] - (image_crop_box[1] * self.scale)
 
-        # Create a semi-transparent overlay using stippled rectangles
-        canvas.create_rectangle(0, 0, canvas_w, crop_y1, fill="black", stipple="gray50", outline="")
-        canvas.create_rectangle(0, crop_y2, canvas_w, canvas_h, fill="black", stipple="gray50", outline="")
-        canvas.create_rectangle(0, crop_y1, crop_x1, crop_y2, fill="black", stipple="gray50", outline="")
-        canvas.create_rectangle(crop_x2, crop_y1, canvas_w, crop_y2, fill="black", stipple="gray50", outline="")
-        # Draw the crop box outline
-        canvas.create_rectangle(crop_x1, crop_y1, crop_x2, crop_y2, outline="white", width=2, dash=(4, 4))
+        self.redraw()
 
-    # Use 'after' to ensure the canvas has been drawn once before getting its size
-    canvas.after(50, redraw_canvas)
+    def _calculate_target_aspect_ratio(self):
+        page_w, page_h = get_page_size()
+        rows, cols = get_grid_dimensions()
+        if rows == 0 or cols == 0: return 1.0 # Fallback
+        margin = 1 * cm
+        cell_w = (page_w - 2 * margin) / cols
+        cell_h = (page_h - 2 * margin) / rows
+        return cell_w / cell_h
 
-    editor_window.wait_window()
+    def redraw(self):
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+        if canvas_w <= 1 or canvas_h <= 1: return
+        self.canvas.delete("all")
+
+        img_w, img_h = self.original_image.size
+        scaled_w, scaled_h = int(img_w * self.scale), int(img_h * self.scale)
+
+        # Create and draw the transformed image
+        resized_img = self.original_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+        self.photo_img = ImageTk.PhotoImage(resized_img)
+        self.canvas.create_image(self.offset_x, self.offset_y, image=self.photo_img, anchor="nw")
+
+        # Draw fixed crop box overlay
+        box_x1, box_y1, box_x2, box_y2 = self.canvas_crop_box
+        self.canvas.create_rectangle(0, 0, canvas_w, box_y1, fill="black", stipple="gray50", outline="")
+        self.canvas.create_rectangle(0, box_y2, canvas_w, canvas_h, fill="black", stipple="gray50", outline="")
+        self.canvas.create_rectangle(0, box_y1, box_x1, box_y2, fill="black", stipple="gray50", outline="")
+        self.canvas.create_rectangle(box_x2, box_y1, canvas_w, box_y2, fill="black", stipple="gray50", outline="")
+        self.canvas.create_rectangle(box_x1, box_y1, box_x2, box_y2, outline="white", width=2, dash=(4, 4))
+
+    def on_pan_press(self, event):
+        self.start_pan_x = event.x
+        self.start_pan_y = event.y
+        self.start_offset_x = self.offset_x
+        self.start_offset_y = self.offset_y
+
+    def on_pan_drag(self, event):
+        dx = event.x - self.start_pan_x
+        dy = event.y - self.start_pan_y
+        self.offset_x = self.start_offset_x + dx
+        self.offset_y = self.start_offset_y + dy
+        self.redraw()
+
+    def on_zoom(self, event):
+        zoom_factor = 1.1 if event.delta > 0 else 0.9
+        mouse_x = self.canvas.canvasx(event.x)
+        mouse_y = self.canvas.canvasy(event.y)
+
+        image_coord_x = (mouse_x - self.offset_x) / self.scale
+        image_coord_y = (mouse_y - self.offset_y) / self.scale
+
+        self.scale *= zoom_factor
+
+        self.offset_x = mouse_x - (image_coord_x * self.scale)
+        self.offset_y = mouse_y - (image_coord_y * self.scale)
+        self.redraw()
+
+# The function that gets called by the double-click event
+def open_crop_editor(index):
+    """Creates an instance of the CropEditor."""
+    editor = CropEditor(root, index)
 
 def on_thumbnail_double_click(index):
     """Handles double-click on a thumbnail to open the crop editor."""
