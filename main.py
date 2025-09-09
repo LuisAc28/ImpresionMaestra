@@ -258,9 +258,22 @@ def calculate_mosaic_layout(images_data_list):
     bin_width = page_width - 2 * margin
     bin_height = page_height - 2 * margin
 
-    scale_factor = mosaic_scale_var.get() / 100.0
+    # --- New Uniform Scaling Logic ---
+    # 1. Find the largest dimension among all images
+    if not images_data_list:
+        return [], []
+    max_dim = 0
+    for img, path in images_data_list:
+        max_dim = max(max_dim, img.width, img.height)
 
-    # Create initial scaled rectangles
+    # 2. Calculate target size based on slider and page width
+    slider_percentage = mosaic_scale_var.get()
+    target_size = bin_width * (slider_percentage / 100.0)
+
+    # 3. Calculate a single, uniform scale factor
+    scale_factor = target_size / max_dim if max_dim > 0 else 0
+
+    # 4. Apply the uniform scale factor to all images
     initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
                      for img, path in images_data_list]
 
@@ -352,9 +365,6 @@ def draw_preview_page():
                 photo_img = ImageTk.PhotoImage(resized_img)
                 preview_canvas.thumbnail_references.append(photo_img)
                 preview_canvas.create_image(px, py, image=photo_img, anchor="nw", tags="layout_item")
-                # Add debug text showing the y-coordinate
-                debug_text = f"y={rect.y}"
-                preview_canvas.create_text(px + 4, py + 4, text=debug_text, anchor="nw", font=("Arial", 8), fill="blue", tags="layout_item")
             except Exception as e:
                 print(f"Error drawing mosaic preview for rect: {rect.rid}. Exception: {e}")
                 preview_canvas.create_rectangle(px, py, px + pw, py + ph, outline="red", fill="pink", tags="layout_item")
@@ -636,7 +646,7 @@ def choose_border_color():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v1.9")
+root.title("Impresión Maestra - v2.0")
 root.geometry("1024x768")
 
 main_container = ttk.Frame(root)
