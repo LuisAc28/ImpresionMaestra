@@ -231,9 +231,10 @@ def draw_preview_page():
                         border_width = int(border_width_var.get())
                         if border_width > 0:
                             border_color = border_color_var.get()
+                            # Draw border around the entire cell
                             preview_canvas.create_rectangle(
-                                px_centered, py_centered,
-                                px_centered + img_w, py_centered + img_h,
+                                px, py,
+                                px + pw, py + ph,
                                 outline=border_color, width=border_width, tags="layout_item"
                             )
                     except (ValueError, tk.TclError):
@@ -385,24 +386,28 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
             pos_x, pos_y = positions[j]
 
             if fit_mode == FIT_MODE_FIT:
-                c.drawImage(ImageReader(img), pos_x, pos_y, width=cell_width, height=cell_height, preserveAspectRatio=True, anchor='c')
+                # Draw border around the cell first
                 if border_width > 0:
-                    img_w, img_h = img.width, img.height
-                    cell_ar = cell_width / cell_height
-                    img_ar = img_w / img_h
-                    if img_ar > cell_ar:
-                        final_w = cell_width
-                        final_h = cell_width / img_ar
-                    else:
-                        final_h = cell_height
-                        final_w = cell_height * img_ar
-
-                    final_x = pos_x + (cell_width - final_w) / 2
-                    final_y = pos_y + (cell_height - final_h) / 2
-
                     c.setStrokeColor(HexColor(border_color))
                     c.setLineWidth(border_width)
-                    c.rect(final_x, final_y, final_w, final_h, stroke=1, fill=0)
+                    c.rect(pos_x, pos_y, cell_width, cell_height, stroke=1, fill=0)
+
+                # Manually calculate the centered position for the image
+                img_w, img_h = img.width, img.height
+                cell_ar = cell_width / cell_height
+                img_ar = img_w / img_h
+                if img_ar > cell_ar:
+                    final_w = cell_width
+                    final_h = cell_width / img_ar
+                else:
+                    final_h = cell_height
+                    final_w = cell_height * img_ar
+
+                final_x = pos_x + (cell_width - final_w) / 2
+                final_y = pos_y + (cell_height - final_h) / 2
+
+                # Then draw the image on top, centered
+                c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h)
 
             elif fit_mode == FIT_MODE_FILL:
                 cropped_img = ImageOps.fit(img, (int(cell_width), int(cell_height)), method=Image.Resampling.LANCZOS)
