@@ -205,28 +205,27 @@ def draw_preview_page():
         rows, cols = get_grid_dimensions()
         if rows * cols == 0: return
 
-        # Simplified, pixel-based calculation for preview
-        margin_px = margin_pt * scale
-        drawable_w = paper_w_px - (2 * margin_px)
-        drawable_h = paper_h_px - (2 * margin_px)
-        cell_w_px = drawable_w / cols
-        cell_h_px = drawable_h / rows
+        # New, simplified algorithm based on the full canvas dimensions
+        canvas_width = preview_canvas.winfo_width()
+        canvas_height = preview_canvas.winfo_height()
+        cell_width = canvas_width / cols
+        cell_height = canvas_height / rows
 
         for i, (img, path) in enumerate(page_data):
             row, col = divmod(i, cols)
 
-            # Cell position directly in canvas coordinates
-            px = x0 + margin_px + (col * cell_w_px)
-            py = y0 + margin_px + (row * cell_h_px)
-            pw = cell_w_px
-            ph = cell_h_px
+            # Calculate cell's top-left corner
+            px = col * cell_width
+            py = row * cell_height
+            pw = cell_width
+            ph = cell_height
 
             try:
                 img_copy = img.copy()
                 img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
                 photo_img = ImageTk.PhotoImage(img_copy)
 
-                img_w, img_h = img.size
+                img_w, img_h = img_copy.size
                 px_centered = px + (pw - img_w) / 2
                 py_centered = py + (ph - img_h) / 2
 
@@ -238,6 +237,7 @@ def draw_preview_page():
                         border_width = int(border_width_var.get())
                         if border_width > 0:
                             border_color = border_color_var.get()
+                            # Draw border around the calculated cell, not the paper
                             preview_canvas.create_rectangle(
                                 px, py, px + pw, py + ph,
                                 outline=border_color, width=border_width, tags="layout_item"
