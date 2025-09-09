@@ -546,6 +546,7 @@ def update_preview():
     # 4. Draw the content for the current page and update controls
     draw_preview_page()
     update_pagination_controls()
+    update_thumbnails_panel()
 
 def show_previous_page():
     """Displays the previous page in the preview."""
@@ -562,6 +563,30 @@ def show_next_page():
         current_preview_page_index += 1
         draw_preview_page()
         update_pagination_controls()
+
+def update_thumbnails_panel():
+    """Clears and repopulates the thumbnail list in the left panel."""
+    # Clear existing thumbnails
+    for widget in thumbnails_inner_frame.winfo_children():
+        widget.destroy()
+
+    # Keep a reference to the PhotoImage objects to prevent garbage collection
+    thumb_canvas.thumb_references = []
+
+    for i, (img, path) in enumerate(loaded_images_data):
+        thumb_frame = ttk.Frame(thumbnails_inner_frame, padding=5)
+        thumb_frame.pack(fill=tk.X, expand=True)
+
+        img_copy = img.copy()
+        img_copy.thumbnail((80, 80), Image.Resampling.LANCZOS)
+        photo_img = ImageTk.PhotoImage(img_copy)
+        thumb_canvas.thumb_references.append(photo_img)
+
+        thumb_label = ttk.Label(thumb_frame, image=photo_img)
+        thumb_label.pack(side=tk.LEFT, padx=(0, 5))
+
+        info_label = ttk.Label(thumb_frame, text=f"{i+1}. {os.path.basename(path)}", wraplength=100, justify=tk.LEFT)
+        info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
 def update_pagination_controls():
     """Updates the state of the pagination buttons and page counter label."""
@@ -700,18 +725,48 @@ def choose_border_color():
 
 # --- UI Setup ---
 root = tk.Tk()
-root.title("Impresión Maestra - v2.1")
+root.title("Impresión Maestra - v2.2")
 root.geometry("1024x768")
 
-main_container = ttk.Frame(root)
-main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+# Main layout with 3 resizable panels
+main_paned_window = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
+main_paned_window.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-controls_panel = ttk.Frame(main_container, width=320)
-controls_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-controls_panel.pack_propagate(False)
+# Left Panel: Thumbnails
+thumbnails_panel = ttk.LabelFrame(main_paned_window, text="Imágenes Cargadas", width=200)
+main_paned_window.add(thumbnails_panel, weight=1)
 
-preview_panel = ttk.LabelFrame(main_container, text="Previsualización del Diseño")
-preview_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+# Center Panel: Controls
+controls_panel = ttk.Frame(main_paned_window, width=320)
+main_paned_window.add(controls_panel, weight=1)
+
+# Right Panel: Preview
+preview_panel = ttk.LabelFrame(main_paned_window, text="Previsualización del Diseño")
+main_paned_window.add(preview_panel, weight=3)
+
+# --- Children of the panels ---
+# Children of controls_panel (no change, they are already linked to this variable)
+controls_panel.pack_propagate(False) # Keep this for the controls panel
+
+# Children of preview_panel (no change, they are already linked to this variable)
+
+# --- Thumbnail Panel UI ---
+thumb_canvas = tk.Canvas(thumbnails_panel)
+thumb_scrollbar = ttk.Scrollbar(thumbnails_panel, orient="vertical", command=thumb_canvas.yview)
+thumbnails_inner_frame = ttk.Frame(thumb_canvas)
+
+thumbnails_inner_frame.bind(
+    "<Configure>",
+    lambda e: thumb_canvas.configure(
+        scrollregion=thumb_canvas.bbox("all")
+    )
+)
+
+thumb_canvas.create_window((0, 0), window=thumbnails_inner_frame, anchor="nw")
+thumb_canvas.configure(yscrollcommand=thumb_scrollbar.set)
+
+thumb_canvas.pack(side="left", fill="both", expand=True)
+thumb_scrollbar.pack(side="right", fill="y")
 
 preview_canvas = tk.Canvas(preview_panel, bg="lightgrey")
 preview_canvas.pack(side=tk.TOP, fill="both", expand=True)
