@@ -10,12 +10,23 @@ import rectpack
 import os
 import cv2
 import numpy as np
+import sys
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 # Global variables
 loaded_images_data = [] # List of (Image, path) tuples
 paper_dims = {} # To store on-screen paper dimensions
 orientation_var = None # Will be initialized with UI
 face_cascade = None # To cache the loaded Haar Cascade classifier
+cascade_load_attempted = False # Flag to prevent repeated load attempts
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
 preview_pages = [] # To store the layout data for all pages
@@ -80,19 +91,37 @@ def upload_files_add():
 def get_face_cascade():
     """
     Loads and caches the Haar Cascade classifier for face detection.
-    Shows an error message if the file is not found.
+    Shows an error message if the file is not found or fails to load.
+    Only attempts to load from disk once.
     """
-    global face_cascade
-    if face_cascade is None:
-        cascade_path = 'haarcascade_frontalface_default.xml'
-        if not os.path.exists(cascade_path):
-            messagebox.showerror(
-                "Error de Recurso",
-                f"No se encontró el archivo del clasificador de caras:\n{cascade_path}\n\n"
-                "Por favor, descárguelo y colóquelo en la misma carpeta que main.py."
-            )
-            return None
-        face_cascade = cv2.CascadeClassifier(cascade_path)
+    global face_cascade, cascade_load_attempted
+    if cascade_load_attempted:
+        return face_cascade
+
+    cascade_load_attempted = True
+    cascade_path = resource_path('haarcascade_frontalface_default.xml')
+
+    if not os.path.exists(cascade_path):
+        messagebox.showerror(
+            "Error de Recurso",
+            f"No se encontró el archivo del clasificador de caras:\n{os.path.basename(cascade_path)}\n\n"
+            "Por favor, asegúrese de que el archivo 'haarcascade_frontalface_default.xml' "
+            "está en la misma carpeta que el ejecutable."
+        )
+        face_cascade = None
+        return None
+
+    face_cascade = cv2.CascadeClassifier(cascade_path)
+
+    if face_cascade.empty():
+        messagebox.showerror(
+            "Error de Recurso",
+            f"No se pudo cargar el clasificador de caras desde:\n{os.path.basename(cascade_path)}\n\n"
+            "El archivo puede estar corrupto o no es un clasificador válido."
+        )
+        face_cascade = None
+        return None
+
     return face_cascade
 
 def trim_whitespace(image):
@@ -332,6 +361,10 @@ def update_preview():
     Calculates the full layout and redraws the entire preview canvas.
     This is the main function for refreshing the preview pane.
     """
+    # Pre-emptive check for face cascade if fill mode is selected
+    if fit_mode_var.get() == FIT_MODE_FILL and get_face_cascade() is None:
+        return # Abort if the required file is missing
+
     global preview_pages, current_preview_page_index, paper_dims
 
     # 0. Save current state
@@ -429,8 +462,10 @@ def generate_pdf():
                 return
             draw_mosaic_pdf(packed_pages, save_path)
         else: # Grid modes
-            pages = calculate_grid_layout(loaded_images_data)
             fit_mode = fit_mode_var.get()
+            if fit_mode == FIT_MODE_FILL and get_face_cascade() is None:
+                return # Abort if the required file is missing
+            pages = calculate_grid_layout(loaded_images_data)
             border_width = int(border_width_var.get())
             border_color = border_color_var.get()
             draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color)
