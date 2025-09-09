@@ -264,14 +264,26 @@ def calculate_mosaic_layout(images_data_list):
     initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
                      for img, path in images_data_list]
 
-    # Downscale any images that are now larger than the page itself
+    # Downscale any images that are now larger than the page, accounting for rotation
     final_rects = []
     for r in initial_rects:
         w, h = r['width'], r['height']
-        if w > bin_width or h > bin_height:
-            ratio = min(bin_width / w if w > 0 else 1, bin_height / h if h > 0 else 1)
-            w *= ratio
-            h *= ratio
+
+        can_fit_as_is = (w <= bin_width and h <= bin_height)
+        can_fit_rotated = (h <= bin_width and w <= bin_height)
+
+        if not can_fit_as_is and not can_fit_rotated:
+            # If it can't fit in any orientation, it must be downscaled.
+            # Calculate the ratio that would make it fit as-is, and the ratio that would make it fit rotated.
+            # We want the smallest downscale, so we take the larger of the two possible ratios.
+            ratio_as_is = min(bin_width / w if w > 0 else 0, bin_height / h if h > 0 else 0)
+            ratio_rotated = min(bin_width / h if h > 0 else 0, bin_height / w if w > 0 else 0)
+
+            downscale_ratio = max(ratio_as_is, ratio_rotated)
+
+            w *= downscale_ratio
+            h *= downscale_ratio
+
         final_rects.append({'width': w, 'height': h, 'rid': r['rid']})
 
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
