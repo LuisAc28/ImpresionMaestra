@@ -26,7 +26,6 @@ loaded_images_data = [] # List of (Image, path) tuples
 paper_dims = {} # To store on-screen paper dimensions
 orientation_var = None # Will be initialized with UI
 face_cascade = None # To cache the loaded Haar Cascade classifier
-cascade_load_attempted = False # Flag to prevent repeated load attempts
 FIT_MODE_FIT = "fit"
 FIT_MODE_FILL = "fill"
 preview_pages = [] # To store the layout data for all pages
@@ -88,40 +87,35 @@ def upload_files_add():
     _handle_file_selection(replace_current=False)
 
 # --- Layout Calculation Logic ---
-def get_face_cascade():
+def load_resources():
     """
-    Loads and caches the Haar Cascade classifier for face detection.
-    Shows an error message if the file is not found or fails to load.
-    Only attempts to load from disk once.
+    Loads resources like the Haar Cascade classifier at startup.
     """
-    global face_cascade, cascade_load_attempted
-    if cascade_load_attempted:
-        return face_cascade
-
-    cascade_load_attempted = True
+    global face_cascade
     cascade_path = resource_path('haarcascade_frontalface_default.xml')
 
     if not os.path.exists(cascade_path):
-        messagebox.showerror(
-            "Error de Recurso",
-            f"No se encontró el archivo del clasificador de caras:\n{os.path.basename(cascade_path)}\n\n"
-            "Por favor, asegúrese de que el archivo 'haarcascade_frontalface_default.xml' "
-            "está en la misma carpeta que el ejecutable."
+        messagebox.showwarning(
+            "Recurso Opcional No Encontrado",
+            f"No se encontró el archivo 'haarcascade_frontalface_default.xml'.\n\n"
+            "La función de 'Rellenar' con detección de caras estará desactivada. "
+            "Para activarla, coloque el archivo en la misma carpeta que el ejecutable."
         )
         face_cascade = None
-        return None
+        return
 
     face_cascade = cv2.CascadeClassifier(cascade_path)
 
     if face_cascade.empty():
-        messagebox.showerror(
+        messagebox.showwarning(
             "Error de Recurso",
             f"No se pudo cargar el clasificador de caras desde:\n{os.path.basename(cascade_path)}\n\n"
-            "El archivo puede estar corrupto o no es un clasificador válido."
+            "La función de 'Rellenar' con detección de caras estará desactivada."
         )
         face_cascade = None
-        return None
 
+def get_face_cascade():
+    """Simple accessor for the globally loaded cascade."""
     return face_cascade
 
 def trim_whitespace(image):
@@ -681,6 +675,9 @@ options_frame.columnconfigure(1, weight=1)
 # Set initial UI state
 handle_fit_mode_change()
 handle_layout_change()
+
+# Load resources at startup
+load_resources()
 
 action_frame = ttk.LabelFrame(controls_panel, text="Acciones", padding=(10, 5))
 action_frame.pack(fill=tk.X, pady=5)
