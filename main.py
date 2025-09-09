@@ -345,7 +345,7 @@ def auto_fit_mosaic():
         return
 
     # Search for the best fit by trying scales from largest to smallest
-    for p in range(200, 24, -5): # Iterate from 200% down to 25% in steps of 5
+    for p in range(150, 4, -5): # Iterate from 150% down to 5% in steps of 5
         pages, unpacked = _run_mosaic_packing(loaded_images_data, p)
         if len(pages) <= 1 and not unpacked:
             # Found the largest scale that fits on one page
@@ -354,7 +354,7 @@ def auto_fit_mosaic():
             return
 
     # If no scale worked (e.g., one image is too big even at min scale)
-    mosaic_scale_var.set(25) # Default to minimum
+    mosaic_scale_var.set(5) # Default to minimum
     update_preview()
     messagebox.showinfo("Ajuste Automático", "No se pudo encajar todas las imágenes en una sola página. Se ha usado el tamaño mínimo posible.")
 
@@ -789,7 +789,7 @@ mosaic_options_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=0, sticky=
 mosaic_scale_label = ttk.Label(mosaic_options_frame, text="Tamaño de Mosaico:")
 mosaic_scale_label.pack(side=tk.LEFT, padx=(5, 5))
 mosaic_scale_var = tk.DoubleVar(value=100)
-mosaic_scale_slider = ttk.Scale(mosaic_options_frame, from_=25, to=200, variable=mosaic_scale_var, orient=tk.HORIZONTAL, command=lambda e: update_preview())
+mosaic_scale_slider = ttk.Scale(mosaic_options_frame, from_=5, to=150, variable=mosaic_scale_var, orient=tk.HORIZONTAL, command=lambda e: update_preview())
 mosaic_scale_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 auto_fit_button = ttk.Button(mosaic_options_frame, text="Ajuste Automático", command=auto_fit_mosaic)
 auto_fit_button.pack(side=tk.LEFT, padx=(5, 0))
