@@ -64,7 +64,8 @@ def _handle_file_selection(replace_current: bool):
                     # Convert to RGBA to handle transparency consistently
                     img = img.convert("RGBA")
                     trimmed_img = trim_whitespace(img)
-                    newly_processed_images.append((trimmed_img, path))
+                    # Store as a dictionary to hold rotation info
+                    newly_processed_images.append({'image': trimmed_img, 'path': path, 'rotation': 0})
             except Exception as e:
                 print(f"Error processing image {path}: {e}")
                 # Optionally show a message to the user
@@ -277,30 +278,30 @@ def _run_mosaic_packing(images_data_list, scale_percentage):
 
     if unify_mode == MOSAIC_UNIFY_NONE:
         max_dim = 0
-        for img, path in images_data_list:
-            max_dim = max(max_dim, img.width, img.height)
+        for item in images_data_list:
+            max_dim = max(max_dim, item['image'].width, item['image'].height)
         target_size = bin_width * (scale_percentage / 100.0)
         scale_factor = target_size / max_dim if max_dim > 0 else 0
-        initial_rects = [{'width': img.width * scale_factor, 'height': img.height * scale_factor, 'rid': (img, path)}
-                         for img, path in images_data_list]
+        initial_rects = [{'width': item['image'].width * scale_factor, 'height': item['image'].height * scale_factor, 'rid': item}
+                         for item in images_data_list]
 
     elif unify_mode == MOSAIC_UNIFY_WIDTH:
         target_width = bin_width * (scale_percentage / 100.0)
-        for img, path in images_data_list:
-            original_w, original_h = img.size
+        for item in images_data_list:
+            original_w, original_h = item['image'].size
             aspect_ratio = original_h / original_w if original_w > 0 else 0
             new_w = target_width
             new_h = new_w * aspect_ratio
-            initial_rects.append({'width': new_w, 'height': new_h, 'rid': (img, path)})
+            initial_rects.append({'width': new_w, 'height': new_h, 'rid': item})
 
     elif unify_mode == MOSAIC_UNIFY_HEIGHT:
         target_height = bin_height * (scale_percentage / 100.0)
-        for img, path in images_data_list:
-            original_w, original_h = img.size
+        for item in images_data_list:
+            original_w, original_h = item['image'].size
             aspect_ratio = original_w / original_h if original_h > 0 else 0
             new_h = target_height
             new_w = new_h * aspect_ratio
-            initial_rects.append({'width': new_w, 'height': new_h, 'rid': (img, path)})
+            initial_rects.append({'width': new_w, 'height': new_h, 'rid': item})
 
     final_rects = []
     for r in initial_rects:
@@ -313,7 +314,8 @@ def _run_mosaic_packing(images_data_list, scale_percentage):
             downscale_ratio = max(ratio_as_is, ratio_rotated)
             w *= downscale_ratio
             h *= downscale_ratio
-        rid_data = {'image': r['rid'][0], 'path': r['rid'][1], 'original_w': w, 'original_h': h}
+        # The rid is the full item dictionary now
+        rid_data = {'image': r['rid']['image'], 'path': r['rid']['path'], 'original_w': w, 'original_h': h}
         final_rects.append({'width': w, 'height': h, 'rid': rid_data})
 
     packer = rectpack.newPacker(pack_algo=rectpack.MaxRectsBl, sort_algo=rectpack.SORT_AREA, rotation=True)
@@ -434,7 +436,10 @@ def draw_preview_page():
         cell_w_px = drawable_w / cols
         cell_h_px = drawable_h / rows
 
-        for i, (img, path) in enumerate(page_data):
+        for i, item in enumerate(page_data):
+            img = item['image']
+            path = item['path']
+            rotation = item['rotation']
             row, col = divmod(i, cols)
 
             # Cell position relative to the paper, not the whole canvas
@@ -445,6 +450,9 @@ def draw_preview_page():
 
             try:
                 img_copy = img.copy()
+                if rotation != 0:
+                    img_copy = img_copy.rotate(rotation, expand=True)
+
                 if fit_mode_var.get() == FIT_MODE_FIT:
                     img_copy.thumbnail((int(pw), int(ph)), Image.Resampling.LANCZOS)
                     img_w, img_h = img_copy.size
@@ -574,11 +582,11 @@ def update_thumbnails_panel():
     thumb_canvas.thumb_references = []
 
     num_cols = 2
-    for i, (img, path) in enumerate(loaded_images_data):
+    for i, item in enumerate(loaded_images_data):
         row = i // num_cols
         col = i % num_cols
 
-        img_copy = img.copy()
+        img_copy = item['image'].copy()
         img_copy.thumbnail((50, 50), Image.Resampling.LANCZOS)
         photo_img = ImageTk.PhotoImage(img_copy)
         thumb_canvas.thumb_references.append(photo_img)
@@ -586,8 +594,9 @@ def update_thumbnails_panel():
         thumb_label = ttk.Label(thumbnails_inner_frame, image=photo_img)
         thumb_label.grid(row=row, column=col, padx=5, pady=5)
 
-        # Bind mousewheel scroll to each thumbnail for robust scrolling
+        # Bind events
         thumb_label.bind("<MouseWheel>", on_thumb_scroll)
+        thumb_label.bind("<Button-1>", lambda event, index=i: on_thumbnail_click(index))
 
 def update_pagination_controls():
     """Updates the state of the pagination buttons and page counter label."""
@@ -666,8 +675,13 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
     for i, page_chunk in enumerate(pages):
         if i > 0: c.showPage()
         positions = [(margin + col * cell_width, margin + (rows - 1 - row) * cell_height) for row in range(rows) for col in range(cols)]
-        for j, (img, path) in enumerate(page_chunk):
+        for j, item in enumerate(page_chunk):
+            img = item['image']
+            rotation = item['rotation']
             pos_x, pos_y = positions[j]
+
+            if rotation != 0:
+                img = img.rotate(rotation, expand=True)
 
             if fit_mode == FIT_MODE_FIT:
                 # Draw border around the cell first
@@ -721,6 +735,15 @@ def choose_border_color():
     color_code = colorchooser.askcolor(title="Elegir color del borde")
     if color_code and color_code[1]:
         border_color_var.set(color_code[1])
+        update_preview()
+
+def on_thumbnail_click(index):
+    """Handles clicks on a thumbnail to rotate the image."""
+    global loaded_images_data
+    if 0 <= index < len(loaded_images_data):
+        current_rotation = loaded_images_data[index]['rotation']
+        new_rotation = (current_rotation + 90) % 360
+        loaded_images_data[index]['rotation'] = new_rotation
         update_preview()
 
 def on_thumb_scroll(event):
