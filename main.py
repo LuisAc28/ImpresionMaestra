@@ -656,19 +656,27 @@ def draw_mosaic_pdf(pages, save_path):
         if i > 0: c.showPage()
         for rect in page:
             img = rect.rid['image']
+            path = rect.rid['path']
             original_w = rect.rid['original_w']
 
             # Infer rotation
-            if rect.width == original_w:
-                img_to_draw = img
-            else:
+            rotated = abs(rect.width - original_w) > 1e-6
+            if rotated:
                 img_to_draw = img.rotate(90, expand=True)
+            else:
+                img_to_draw = img
+
+            is_jpg = path.lower().endswith(('.jpg', '.jpeg'))
+
+            # For non-rotated JPEGs, pass the file path directly to avoid re-compression.
+            # For PNGs or rotated JPEGs, use the Pillow object via ImageReader.
+            drawable = path if is_jpg and not rotated else ImageReader(img_to_draw)
 
             page_height = get_page_size()[1]
             x = margin + rect.x
             # Invert y-coordinate for PDF's bottom-left origin
             y = page_height - (margin + rect.y + rect.height)
-            c.drawImage(ImageReader(img_to_draw), x, y, width=rect.width, height=rect.height, mask='auto')
+            c.drawImage(drawable, x, y, width=rect.width, height=rect.height, mask='auto')
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
@@ -689,11 +697,14 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
         positions = [(margin + col * cell_width, margin + (rows - 1 - row) * cell_height) for row in range(rows) for col in range(cols)]
         for j, item in enumerate(page_chunk):
             img = item['image']
+            path = item['path']
             rotation = item['rotation']
             pos_x, pos_y = positions[j]
 
             if rotation != 0:
                 img = img.rotate(rotation, expand=True)
+
+            is_jpg = path.lower().endswith(('.jpg', '.jpeg'))
 
             if fit_mode == FIT_MODE_FIT:
                 # Draw border around the cell first
@@ -716,30 +727,19 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 final_x = pos_x + (cell_width - final_w) / 2
                 final_y = pos_y + (cell_height - final_h) / 2
 
-                # Then draw the image on top, centered
-                c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h, mask='auto')
+                # For non-rotated JPEGs, pass the file path directly. Otherwise use ImageReader.
+                drawable = path if is_jpg and rotation == 0 else ImageReader(img)
+                c.drawImage(drawable, final_x, final_y, width=final_w, height=final_h, mask='auto')
 
             elif fit_mode == FIT_MODE_FILL:
-                # Calculate target pixel size for 300 DPI
-                dpi = int(dpi_var.get())
-                target_px_w = int((cell_width / 72) * dpi)
-                target_px_h = int((cell_height / 72) * dpi)
-
                 if item.get('custom_crop_box'):
                     box = item['custom_crop_box']
                 else:
                     box = calculate_smart_crop_box(img, cell_width / cell_height)
-
-                cropped_img = apply_crop_and_resize(img, box, target_px_w, target_px_h)
+                cropped_img = apply_crop_and_resize(img, box, int(cell_width), int(cell_height))
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
-
             elif fit_mode == FIT_MODE_DEFORM:
-                # Calculate target pixel size for 300 DPI
-                dpi = int(dpi_var.get())
-                target_px_w = int((cell_width / 72) * dpi)
-                target_px_h = int((cell_height / 72) * dpi)
-
-                deformed_img = img.resize((target_px_w, target_px_h), Image.Resampling.LANCZOS)
+                deformed_img = img.resize((int(cell_width), int(cell_height)), Image.Resampling.LANCZOS)
                 c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
@@ -1128,15 +1128,6 @@ orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variab
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
 orientation_radio_h.pack(side=tk.LEFT, expand=True)
-
-# --- DPI Selection (row 7) ---
-dpi_label = ttk.Label(options_frame, text="Resolución (DPI):")
-dpi_label.grid(row=7, column=0, padx=5, pady=5, sticky="w")
-dpi_var = tk.StringVar(value="300")
-dpi_options = ["300", "600", "1200"]
-dpi_combo = ttk.Combobox(options_frame, textvariable=dpi_var, values=dpi_options, state="readonly", width=10)
-dpi_combo.grid(row=7, column=1, padx=5, pady=5, sticky="w")
-
 
 options_frame.columnconfigure(1, weight=1)
 
