@@ -85,13 +85,26 @@ def draw_and_save_pages_as_images(pages, save_path, layout_choice, page_size_pt,
                 cell_paste_y = margin_px + (row * cell_height_px)
 
                 if fit_mode == FIT_MODE_FIT:
-                    img_copy = img.copy()
-                    img_copy.thumbnail((cell_width_px, cell_height_px), Image.Resampling.LANCZOS)
-                    img_w, img_h = img_copy.size
+                    img_w, img_h = img.size
+                    cell_ar = cell_width_px / cell_height_px
+                    img_ar = img_w / img_h
+
+                    if img_ar > cell_ar:
+                        # Image is wider than the cell, so width is the limiting factor
+                        final_w = cell_width_px
+                        final_h = int(cell_width_px / img_ar)
+                    else:
+                        # Image is taller than or proportional to the cell, so height is the limiting factor
+                        final_h = cell_height_px
+                        final_w = int(cell_height_px * img_ar)
+
+                    # Resize with high-quality filter
+                    resized_img = img.resize((final_w, final_h), Image.Resampling.LANCZOS)
+
                     # Center the image within the cell
-                    paste_x = cell_paste_x + (cell_width_px - img_w) // 2
-                    paste_y = cell_paste_y + (cell_height_px - img_h) // 2
-                    canvas_img.paste(img_copy, (paste_x, paste_y), img_copy)
+                    paste_x = cell_paste_x + (cell_width_px - final_w) // 2
+                    paste_y = cell_paste_y + (cell_height_px - final_h) // 2
+                    canvas_img.paste(resized_img, (paste_x, paste_y), resized_img)
 
                 elif fit_mode == FIT_MODE_FILL:
                     if item.get('custom_crop_box'):
