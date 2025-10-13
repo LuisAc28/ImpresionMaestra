@@ -651,6 +651,7 @@ def generate_pdf():
 def draw_mosaic_pdf(pages, save_path):
     margin = 1 * cm
     c = canvas.Canvas(save_path, pagesize=get_page_size())
+    c.setPageCompression(0)
     for i, page in enumerate(pages):
         if i > 0: c.showPage()
         for rect in page:
@@ -667,7 +668,7 @@ def draw_mosaic_pdf(pages, save_path):
             x = margin + rect.x
             # Invert y-coordinate for PDF's bottom-left origin
             y = page_height - (margin + rect.y + rect.height)
-            c.drawImage(ImageReader(img_to_draw), x, y, width=rect.width, height=rect.height)
+            c.drawImage(ImageReader(img_to_draw), x, y, width=rect.width, height=rect.height, mask='auto')
     c.save()
     messagebox.showinfo("Éxito", f"PDF en modo Mosaico guardado en:\n{save_path}")
 
@@ -678,6 +679,7 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
         return
     pagesize = get_page_size()
     c = canvas.Canvas(save_path, pagesize=pagesize)
+    c.setPageCompression(0)
     width, height = pagesize
     margin = 1 * cm
     cell_width = (width - 2 * margin) / cols
@@ -715,18 +717,28 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 final_y = pos_y + (cell_height - final_h) / 2
 
                 # Then draw the image on top, centered
-                c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h)
+                c.drawImage(ImageReader(img), final_x, final_y, width=final_w, height=final_h, mask='auto')
 
             elif fit_mode == FIT_MODE_FILL:
+                # Calculate target pixel size for 300 DPI
+                target_px_w = int((cell_width / 72) * 300)
+                target_px_h = int((cell_height / 72) * 300)
+
                 if item.get('custom_crop_box'):
                     box = item['custom_crop_box']
                 else:
                     box = calculate_smart_crop_box(img, cell_width / cell_height)
-                cropped_img = apply_crop_and_resize(img, box, int(cell_width), int(cell_height))
-                c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height)
+
+                cropped_img = apply_crop_and_resize(img, box, target_px_w, target_px_h)
+                c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
+
             elif fit_mode == FIT_MODE_DEFORM:
-                deformed_img = img.resize((int(cell_width), int(cell_height)), Image.Resampling.LANCZOS)
-                c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height)
+                # Calculate target pixel size for 300 DPI
+                target_px_w = int((cell_width / 72) * 300)
+                target_px_h = int((cell_height / 72) * 300)
+
+                deformed_img = img.resize((target_px_w, target_px_h), Image.Resampling.LANCZOS)
+                c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
 
