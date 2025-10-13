@@ -600,6 +600,10 @@ def update_thumbnails_panel():
         rotate_button = ttk.Button(row_frame, text="🔄", command=lambda index=i: on_thumbnail_click(index))
         rotate_button.pack(side=tk.LEFT, padx=5)
 
+        # Add delete button
+        delete_button = ttk.Button(row_frame, text="🗑️", command=lambda index=i: delete_image(index))
+        delete_button.pack(side=tk.LEFT, padx=5)
+
         # Bind events to the thumbnail label
         thumb_label.bind("<MouseWheel>", on_thumb_scroll)
         thumb_label.bind("<Double-Button-1>", lambda event, index=i: on_thumbnail_double_click(index))
@@ -732,14 +736,25 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
                 c.drawImage(drawable, final_x, final_y, width=final_w, height=final_h, mask='auto')
 
             elif fit_mode == FIT_MODE_FILL:
+                # Calculate target pixel size for selected DPI
+                dpi = int(dpi_var.get())
+                target_px_w = int((cell_width / 72) * dpi)
+                target_px_h = int((cell_height / 72) * dpi)
+
                 if item.get('custom_crop_box'):
                     box = item['custom_crop_box']
                 else:
                     box = calculate_smart_crop_box(img, cell_width / cell_height)
-                cropped_img = apply_crop_and_resize(img, box, int(cell_width), int(cell_height))
+
+                cropped_img = apply_crop_and_resize(img, box, target_px_w, target_px_h)
                 c.drawImage(ImageReader(cropped_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
             elif fit_mode == FIT_MODE_DEFORM:
-                deformed_img = img.resize((int(cell_width), int(cell_height)), Image.Resampling.LANCZOS)
+                # Calculate target pixel size for selected DPI
+                dpi = int(dpi_var.get())
+                target_px_w = int((cell_width / 72) * dpi)
+                target_px_h = int((cell_height / 72) * dpi)
+
+                deformed_img = img.resize((target_px_w, target_px_h), Image.Resampling.LANCZOS)
                 c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
     c.save()
     messagebox.showinfo("Éxito", f"PDF guardado exitosamente en:\n{save_path}")
@@ -937,6 +952,13 @@ def on_thumbnail_click(index):
         loaded_images_data[index]['rotation'] = new_rotation
         update_preview()
 
+def delete_image(index):
+    """Removes an image from the loaded list and updates the preview."""
+    global loaded_images_data
+    if 0 <= index < len(loaded_images_data):
+        loaded_images_data.pop(index)
+        update_preview()
+
 def on_thumb_scroll(event):
     """Handles mouse wheel scrolling for the thumbnail canvas."""
     thumb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -1128,6 +1150,15 @@ orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variab
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
 orientation_radio_h.pack(side=tk.LEFT, expand=True)
+
+# --- DPI Selection (row 7) ---
+dpi_label = ttk.Label(options_frame, text="Resolución (DPI):")
+dpi_label.grid(row=7, column=0, padx=5, pady=5, sticky="w")
+dpi_var = tk.StringVar(value="300")
+dpi_options = ["300", "600", "1200"]
+dpi_combo = ttk.Combobox(options_frame, textvariable=dpi_var, values=dpi_options, state="readonly", width=10)
+dpi_combo.grid(row=7, column=1, padx=5, pady=5, sticky="w")
+
 
 options_frame.columnconfigure(1, weight=1)
 
