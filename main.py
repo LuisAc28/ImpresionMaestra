@@ -721,8 +721,9 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
 
             elif fit_mode == FIT_MODE_FILL:
                 # Calculate target pixel size for 300 DPI
-                target_px_w = int((cell_width / 72) * 300)
-                target_px_h = int((cell_height / 72) * 300)
+                dpi = int(dpi_var.get())
+                target_px_w = int((cell_width / 72) * dpi)
+                target_px_h = int((cell_height / 72) * dpi)
 
                 if item.get('custom_crop_box'):
                     box = item['custom_crop_box']
@@ -734,8 +735,9 @@ def draw_grid_pdf(pages, fit_mode, save_path, border_width, border_color):
 
             elif fit_mode == FIT_MODE_DEFORM:
                 # Calculate target pixel size for 300 DPI
-                target_px_w = int((cell_width / 72) * 300)
-                target_px_h = int((cell_height / 72) * 300)
+                dpi = int(dpi_var.get())
+                target_px_w = int((cell_width / 72) * dpi)
+                target_px_h = int((cell_height / 72) * dpi)
 
                 deformed_img = img.resize((target_px_w, target_px_h), Image.Resampling.LANCZOS)
                 c.drawImage(ImageReader(deformed_img), pos_x, pos_y, width=cell_width, height=cell_height, mask='auto')
@@ -1126,6 +1128,15 @@ orientation_radio_v = ttk.Radiobutton(orientation_frame, text="Vertical", variab
 orientation_radio_h = ttk.Radiobutton(orientation_frame, text="Horizontal", variable=orientation_var, value="Horizontal", command=update_preview)
 orientation_radio_v.pack(side=tk.LEFT, expand=True)
 orientation_radio_h.pack(side=tk.LEFT, expand=True)
+
+# --- DPI Selection (row 7) ---
+dpi_label = ttk.Label(options_frame, text="Resolución (DPI):")
+dpi_label.grid(row=7, column=0, padx=5, pady=5, sticky="w")
+dpi_var = tk.StringVar(value="300")
+dpi_options = ["300", "600", "1200"]
+dpi_combo = ttk.Combobox(options_frame, textvariable=dpi_var, values=dpi_options, state="readonly", width=10)
+dpi_combo.grid(row=7, column=1, padx=5, pady=5, sticky="w")
+
 
 options_frame.columnconfigure(1, weight=1)
 
