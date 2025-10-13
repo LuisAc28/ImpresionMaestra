@@ -7,6 +7,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from PIL import Image, ImageOps, ImageTk
 import rectpack
+from draw_and_save import draw_and_save_pages_as_images
 import os
 import cv2
 import numpy as np
@@ -84,9 +85,11 @@ def _handle_file_selection(replace_current: bool):
     if loaded_images_data:
         preview_button.config(state=tk.NORMAL)
         generate_button.config(state=tk.NORMAL)
+        export_image_button.config(state=tk.NORMAL)
     else:
         preview_button.config(state=tk.DISABLED)
         generate_button.config(state=tk.DISABLED)
+        export_image_button.config(state=tk.DISABLED)
 
     update_preview()
 
@@ -652,6 +655,63 @@ def generate_pdf():
     except Exception as e:
         messagebox.showerror("Error", f"Ocurrió un error inesperado:\n{e}")
 
+def export_as_image():
+    """
+    Handles the logic for exporting the calculated layout as a series of image files.
+    """
+    if not loaded_images_data:
+        messagebox.showinfo("Información", "No hay imágenes seleccionadas para exportar.")
+        return
+
+    # 1. Calculate the layout to get the pages
+    pages = []
+    layout_choice = layout_var.get()
+    try:
+        if layout_choice == "Mosaico (Ahorro de papel)":
+            pages, unpacked_paths = calculate_mosaic_layout(loaded_images_data)
+            if unpacked_paths:
+                msg = "Las siguientes imágenes fueron omitidas por ser demasiado grandes:\n\n" + "\n".join(f"- {os.path.basename(p)}" for p in unpacked_paths)
+                messagebox.showwarning("Imágenes Omitidas", msg)
+            if not pages:
+                messagebox.showerror("Error", "No se pudo empaquetar ninguna imagen para la exportación.")
+                return
+        else: # Grid modes
+            pages = calculate_grid_layout(loaded_images_data)
+            if not pages:
+                messagebox.showerror("Error", "No se pudo generar ningún diseño de página.")
+                return
+    except Exception as e:
+        messagebox.showerror("Error de Diseño", f"Ocurrió un error al calcular el diseño:\n{e}")
+        return
+
+    # 2. Ask user for save location and base name
+    save_path = filedialog.asksaveasfilename(
+        title="Guardar Imágenes Como...",
+        filetypes=[("Archivos PNG", "*.png"), ("Todos los archivos", "*.*")]
+    )
+    if not save_path:
+        return # User cancelled
+
+    # 3. Gather context and call the decoupled drawing function
+    try:
+        grid_dims = get_grid_dimensions()
+        fit_mode = fit_mode_var.get()
+        page_size_pt = get_page_size()
+
+        draw_and_save_pages_as_images(
+            pages,
+            save_path,
+            layout_choice,
+            page_size_pt,
+            grid_dims,
+            fit_mode,
+            calculate_smart_crop_box, # Pass the function itself
+            apply_crop_and_resize # Pass the function itself
+        )
+        messagebox.showinfo("Éxito", f"Imágenes guardadas exitosamente cerca de:\n{save_path}")
+    except Exception as e:
+        messagebox.showerror("Error al Guardar", f"No se pudieron guardar las imágenes:\n{e}")
+
 def draw_mosaic_pdf(pages, save_path):
     margin = 1 * cm
     c = canvas.Canvas(save_path, pagesize=get_page_size())
@@ -1183,5 +1243,9 @@ preview_button.pack(pady=5, fill=tk.X)
 
 generate_button = ttk.Button(action_frame, text="Generar PDF", command=generate_pdf, state=tk.DISABLED)
 generate_button.pack(pady=5, fill=tk.X)
+
+export_image_button = ttk.Button(action_frame, text="Exportar como Imagen", command=export_as_image, state=tk.DISABLED)
+export_image_button.pack(pady=5, fill=tk.X)
+
 
 root.mainloop()
